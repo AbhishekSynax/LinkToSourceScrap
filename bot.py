@@ -22,9 +22,10 @@ import random
 import string
 import asyncio
 import requests
+import base64
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-import re
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, Document
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters, ConversationHandler
@@ -32,7 +33,7 @@ from telegram.constants import ParseMode, ChatAction
 from telegram.error import TelegramError, BadRequest
 
 # ===================== CONFIGURATION =====================
-BOT_TOKEN = "8538798053:AAH5FIriSDivlPcd-NwuCCz9iOc6RiwHVR0"
+BOT_TOKEN = "8246763985:AAFDOdJlNGO4WNyE9geP_JYk_MRx3aE4Rmk"  # Using your token
 
 # OWNER DETAILS - SYNAX Network
 OWNER_ID = 7998441787
@@ -40,7 +41,7 @@ OWNER_USERNAME = "@synaxnetwork"
 OWNER_NAME = "Synaxnetwork"
 
 # ADMINS LIST
-ADMINS = [OWNER_ID, 7998441787]
+ADMINS = [OWNER_ID]
 
 # PROMOTION CHANNELS
 PROMOTION_CHANNEL = "https://t.me/Synaxnetwork"
@@ -1327,45 +1328,6 @@ async def give_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error in give command: {e}")
         await update.message.reply_text("❌ Error giving downloads.")
-
-# ===================== BROADCAST WITH IMAGE (NEW) =====================
-async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Broadcast message with image to all users (admin only)"""
-    try:
-        user_id = update.effective_user.id
-        
-        if not is_admin(user_id):
-            await update.message.reply_text("❌ **ADMIN ONLY!**")
-            return
-        
-        if update.message.photo:
-            # If message has a photo, use it for broadcast
-            photo_file_id = update.message.photo[-1].file_id
-            caption = update.message.caption or ""
-            
-            # Ask for confirmation
-            await update.message.reply_text(
-                f"📢 **BROADCAST WITH IMAGE** 📢\n\n"
-                f"Caption: {caption[:100]}...\n\n"
-                f"Reply with `confirm_broadcast` to send this to all users\n"
-                f"Reply with `cancel_broadcast` to cancel",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            
-            # Store broadcast info in context
-            context.user_data['broadcast_photo'] = photo_file_id
-            context.user_data['broadcast_caption'] = caption
-            context.user_data['awaiting_broadcast_confirm'] = True
-        else:
-            await update.message.reply_text(
-                "📢 **BROADCAST WITH IMAGE** 📢\n\n"
-                "Please send a photo with caption to broadcast.\n\n"
-                "Example: Send a photo with caption 'New update available!'",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    except Exception as e:
-        logger.error(f"Error in broadcast command: {e}")
-        await update.message.reply_text("❌ Error preparing broadcast.")
 
 # ===================== ADMIN COMMAND HANDLERS (SYNAX System) =====================
 async def handle_add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2695,51 +2657,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await process_bulk_generation(update, context)
             return
         
-        # Handle broadcast confirmation
-        if context.user_data.get('awaiting_broadcast_confirm') and is_admin(user_id):
-            if message_text.lower() == "confirm_broadcast":
-                # Get broadcast info
-                photo_file_id = context.user_data.get('broadcast_photo')
-                caption = context.user_data.get('broadcast_caption', '')
-                
-                # Broadcast to all users
-                success = 0
-                failed = 0
-                
-                await update.message.reply_text(f"📢 Broadcasting to {len(users_db)} users...")
-                
-                for uid_str in users_db.keys():
-                    try:
-                        await context.bot.send_photo(
-                            chat_id=int(uid_str),
-                            photo=photo_file_id,
-                            caption=f"📢 **BROADCAST:**\n\n{caption}",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                        success += 1
-                    except:
-                        failed += 1
-                
-                await update.message.reply_text(
-                    f"✅ **Broadcast Complete!**\n\n"
-                    f"✅ Success: {success}\n"
-                    f"❌ Failed: {failed}"
-                )
-                
-                # Reset state
-                context.user_data['awaiting_broadcast_confirm'] = False
-                context.user_data.pop('broadcast_photo', None)
-                context.user_data.pop('broadcast_caption', None)
-                return
-            elif message_text.lower() == "cancel_broadcast":
-                await update.message.reply_text("❌ Broadcast cancelled.")
-                
-                # Reset state
-                context.user_data['awaiting_broadcast_confirm'] = False
-                context.user_data.pop('broadcast_photo', None)
-                context.user_data.pop('broadcast_caption', None)
-                return
-        
         # Handle admin commands in messages
         if context.user_data.get('awaiting_broadcast') and is_admin(user_id):
             # Broadcast message
@@ -2963,28 +2880,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         user_data = get_user_stats(user_id)
         
-        # Handle broadcast photo
-        if context.user_data.get('awaiting_broadcast') and is_admin(user_id):
-            # Store photo for broadcast
-            photo_file_id = update.message.photo[-1].file_id
-            caption = update.message.caption or ""
-            
-            # Ask for confirmation
-            await update.message.reply_text(
-                f"📢 **BROADCAST WITH IMAGE** 📢\n\n"
-                f"Caption: {caption[:100]}...\n\n"
-                f"Reply with `confirm_broadcast` to send this to all users\n"
-                f"Reply with `cancel_broadcast` to cancel",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            
-            # Store broadcast info in context
-            context.user_data['broadcast_photo'] = photo_file_id
-            context.user_data['broadcast_caption'] = caption
-            context.user_data['awaiting_broadcast'] = False
-            context.user_data['awaiting_broadcast_confirm'] = True
-            return
-        
         # Check if user has a pending payment
         user_payments = [p for p in payments_db.values() 
                         if p.get('user_id') == user_id and p.get('status') == 'pending']
@@ -3069,10 +2964,7 @@ async def setup_commands(application: Application):
         BotCommand("admin", "Admin panel (admins only)"),
         BotCommand("activate", "Activate subscription key"),
         BotCommand("generate", "Generate key (admin only)"),
-        BotCommand("give", "Give downloads to user (owner only)"),
-        BotCommand("broadcast", "Broadcast message with image (admin only)"),
-        BotCommand("support", "Create support ticket"),
-        BotCommand("referral", "Get your referral link")
+        BotCommand("give", "Give downloads to user (owner only)")
     ]
     
     await application.bot.set_my_commands(commands)
@@ -3120,9 +3012,6 @@ def main():
     application.add_handler(CommandHandler("activate", activate_key_command))
     application.add_handler(CommandHandler("generate", generate_key_command))
     application.add_handler(CommandHandler("give", give_command))
-    application.add_handler(CommandHandler("broadcast", broadcast_command))
-    application.add_handler(CommandHandler("support", lambda u, c: handle_support_menu(u, c)))
-    application.add_handler(CommandHandler("referral", lambda u, c: handle_my_referral(u, c)))
     
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(conv_handler)
