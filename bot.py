@@ -6,8 +6,6 @@ Combined Features:
 - Clean URL-to-ZIP from second bot
 - Advanced UI/UX with working buttons
 - Bulk key generation system
-- Group Activation System (NEW)
-- Welcome Bonus System (NEW)
 - Owner: @synaxnetwork
 """
 
@@ -16,6 +14,7 @@ import json
 import logging
 import io
 import zipfile
+import subprocess
 import tempfile
 import shutil
 import time
@@ -23,22 +22,17 @@ import random
 import string
 import asyncio
 import requests
-import base64
-import re
-import urllib.request
-import urllib.parse
-import urllib.error
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-from pathlib import Path
+import re
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, Document, ChatMemberUpdated
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters, ConversationHandler, ChatMemberHandler
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, Document
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters, ConversationHandler
 from telegram.constants import ParseMode, ChatAction
 from telegram.error import TelegramError, BadRequest
 
 # ===================== CONFIGURATION =====================
-BOT_TOKEN = "8538798053:AAH5FIriSDivlPcd-NwuCCz9iOc6RiwHVR0"  # Using your token
+BOT_TOKEN = "8538798053:AAH5FIriSDivlPcd-NwuCCz9iOc6RiwHVR0"
 
 # OWNER DETAILS - SYNAX Network
 OWNER_ID = 7998441787
@@ -46,7 +40,7 @@ OWNER_USERNAME = "@synaxnetwork"
 OWNER_NAME = "Synaxnetwork"
 
 # ADMINS LIST
-ADMINS = [OWNER_ID]
+ADMINS = [OWNER_ID, 7998441787]
 
 # PROMOTION CHANNELS
 PROMOTION_CHANNEL = "https://t.me/Synaxnetwork"
@@ -62,9 +56,6 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 # DOWNLOAD STATES
 AWAITING_URL, AWAITING_DOWNLOAD_TYPE, AWAITING_KEY = range(3)
-
-# GROUPS FILE (NEW)
-GROUPS_FILE = "groups.json"
 
 # FILES - SYNAX System
 USERS_FILE = "users.json"
@@ -116,7 +107,6 @@ download_history_db = load_json(DOWNLOAD_HISTORY_FILE)
 bulk_keys_db = load_json(BULK_KEYS_FILE)
 tickets_db = load_json(TICKETS_FILE)
 reports_db = load_json(REPORTS_FILE)
-groups_db = load_json(GROUPS_FILE)  # NEW
 
 # Default settings - SYNAX System
 if "maintenance" not in settings_db:
@@ -141,96 +131,8 @@ if "referral_system" not in settings_db:
     settings_db["referral_system"] = True
 if "referral_reward" not in settings_db:
     settings_db["referral_reward"] = 5  # 5 downloads for each referral
-if "welcome_bonus" not in settings_db:
-    settings_db["welcome_bonus"] = 5  # Welcome bonus downloads
 
 save_json(SETTINGS_FILE, settings_db)
-
-# ===================== GROUP ACTIVATION SYSTEM (NEW) =====================
-def get_group_info(group_id: int) -> Dict:
-    """Get group information"""
-    try:
-        group_id_str = str(group_id)
-        if group_id_str not in groups_db:
-            groups_db[group_id_str] = {
-                "group_id": group_id,
-                "is_active": False,
-                "activated_at": None,
-                "activated_by": None,
-                "member_count": 0,
-                "unlimited_users": []
-            }
-        return groups_db[group_id_str]
-    except Exception as e:
-        logger.error(f"Error getting group info: {e}")
-        return {}
-
-def activate_group(group_id: int, activated_by: int) -> bool:
-    """Activate a group for unlimited downloads"""
-    try:
-        group_id_str = str(group_id)
-        groups_db[group_id_str] = {
-            "group_id": group_id,
-            "is_active": True,
-            "activated_at": datetime.now().isoformat(),
-            "activated_by": activated_by,
-            "member_count": 0,
-            "unlimited_users": []
-        }
-        save_json(GROUPS_FILE, groups_db)
-        return True
-    except Exception as e:
-        logger.error(f"Error activating group: {e}")
-        return False
-
-def deactivate_group(group_id: int) -> bool:
-    """Deactivate a group"""
-    try:
-        group_id_str = str(group_id)
-        if group_id_str in groups_db:
-            groups_db[group_id_str]["is_active"] = False
-            groups_db[group_id_str]["unlimited_users"] = []
-            save_json(GROUPS_FILE, groups_db)
-            return True
-        return False
-    except Exception as e:
-        logger.error(f"Error deactivating group: {e}")
-        return False
-
-def add_unlimited_user_to_group(group_id: int, user_id: int) -> bool:
-    """Add user to unlimited list for a group"""
-    try:
-        group_info = get_group_info(group_id)
-        if group_info.get("is_active", False):
-            if user_id not in group_info["unlimited_users"]:
-                groups_db[str(group_id)]["unlimited_users"].append(user_id)
-                save_json(GROUPS_FILE, groups_db)
-            return True
-        return False
-    except Exception as e:
-        logger.error(f"Error adding unlimited user to group: {e}")
-        return False
-
-def is_user_unlimited_in_group(user_id: int, group_id: int) -> bool:
-    """Check if user has unlimited access in a group"""
-    try:
-        group_info = get_group_info(group_id)
-        return group_info.get("is_active", False) and user_id in group_info.get("unlimited_users", [])
-    except Exception as e:
-        logger.error(f"Error checking unlimited user: {e}")
-        return False
-
-def get_active_groups() -> List[Dict]:
-    """Get all active groups"""
-    try:
-        active_groups = []
-        for group_id_str, group_data in groups_db.items():
-            if group_data.get("is_active", False):
-                active_groups.append(group_data)
-        return active_groups
-    except Exception as e:
-        logger.error(f"Error getting active groups: {e}")
-        return []
 
 # ===================== FEATURE 1: KEY GENERATION (SYNAX) =====================
 def generate_key(plan: str = "premium", days: int = 30, downloads: int = 100) -> str:
@@ -552,7 +454,7 @@ def create_user(user_id: int, username: str = "", first_name: str = "") -> Dict:
         "id": user_id,
         "username": username,
         "first_name": first_name,
-        "downloads_left": settings_db.get("welcome_bonus", 5),  # Welcome bonus
+        "downloads_left": 0,
         "total_downloads": 0,
         "subscription": "free",
         "joined_date": datetime.now().isoformat(),
@@ -560,8 +462,7 @@ def create_user(user_id: int, username: str = "", first_name: str = "") -> Dict:
         "is_banned": False,
         "warnings": 0,
         "messages_sent": 0,
-        "referral_count": 0,
-        "welcome_bonus_given": True  # Track if welcome bonus was given
+        "referral_count": 0
     }
 
 def get_user_stats(user_id: int) -> Dict:
@@ -657,7 +558,7 @@ def unban_user(user_id: int) -> bool:
         logger.error(f"Error unbanning user: {e}")
         return False
 
-# ===================== URL TO ZIP FEATURE (Using urllib instead of wget) =====================
+# ===================== URL TO ZIP FEATURE (From Second Bot) =====================
 def clean_url(url):
     """Clean and validate URL - From Second Bot"""
     try:
@@ -671,91 +572,28 @@ def clean_url(url):
         logger.error(f"Error cleaning URL: {e}")
         return url
 
-def download_file(url, local_path):
-    """Download a file from URL to local path using urllib"""
-    try:
-        urllib.request.urlretrieve(url, local_path)
-        return True
-    except Exception as e:
-        logger.error(f"Error downloading file {url}: {e}")
-        return False
-
 def create_direct_zip(url, download_type="full"):
-    """Download and create zip directly using urllib instead of wget"""
+    """Download and create zip directly - From Second Bot"""
     temp_dir = None
     try:
         # Create temporary directory
         temp_dir = tempfile.mkdtemp()
         
-        # Parse URL to get domain and path
-        parsed_url = urllib.parse.urlparse(url)
-        domain = parsed_url.netloc
-        path = parsed_url.path
-        
-        # Create a simple index page if full download
         if download_type == "full":
-            # Create a simple HTML file with the URL content
-            index_path = os.path.join(temp_dir, "index.html")
-            
-            try:
-                # Try to fetch the HTML content
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-                req = urllib.request.Request(url, headers=headers)
-                
-                with urllib.request.urlopen(req) as response:
-                    html_content = response.read().decode('utf-8', errors='ignore')
-                
-                # Write the content to index.html
-                with open(index_path, 'w', encoding='utf-8') as f:
-                    f.write(html_content)
-                
-                file_count = 1
-            except Exception as e:
-                logger.error(f"Error fetching URL content: {e}")
-                
-                # Create a simple HTML file with link to the original URL
-                with open(index_path, 'w', encoding='utf-8') as f:
-                    f.write(f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Website Download</title>
-    <meta charset="utf-8">
-</head>
-<body>
-    <h1>Website Download</h1>
-    <p>Original URL: <a href="{url}">{url}</a></p>
-    <p>This is a simplified version of the website.</p>
-    <p>Downloaded by SYNAX Bot</p>
-</body>
-</html>
-                    """)
-                file_count = 1
+            cmd = f"""wget --mirror --convert-links --adjust-extension --page-requisites \
+                    --no-parent --no-check-certificate -e robots=off \
+                    --user-agent="Mozilla/5.0" --quiet -P "{temp_dir}" "{url}" """
         else:
-            # For partial download, just create a simple HTML file
-            index_path = os.path.join(temp_dir, "index.html")
-            with open(index_path, 'w', encoding='utf-8') as f:
-                f.write(f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Website Download</title>
-    <meta charset="utf-8">
-</head>
-<body>
-    <h1>Website Download</h1>
-    <p>Original URL: <a href="{url}">{url}</a></p>
-    <p>This is a partial download of the website.</p>
-    <p>Downloaded by SYNAX Bot</p>
-</body>
-</html>
-                """)
-            file_count = 1
+            cmd = f"""wget -r -l 2 -k -p -E --no-check-certificate \
+                    -e robots=off --quiet -P "{temp_dir}" "{url}" """
+        
+        # Execute download
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
         
         # Create zip in memory
         zip_buffer = io.BytesIO()
+        file_count = 0
         
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
             for root, dirs, files in os.walk(temp_dir):
@@ -767,6 +605,7 @@ def create_direct_zip(url, download_type="full"):
                         
                         arcname = os.path.relpath(file_path, temp_dir)
                         zipf.writestr(arcname, file_data)
+                        file_count += 1
                     except:
                         continue
         
@@ -836,8 +675,6 @@ def get_admin_menu() -> InlineKeyboardMarkup:
          InlineKeyboardButton("↩️ REPLY USER", callback_data="admin_reply_user")],
         [InlineKeyboardButton("🎫 SUPPORT TICKETS", callback_data="admin_tickets"),
          InlineKeyboardButton("📊 REPORTS", callback_data="admin_reports")],
-        [InlineKeyboardButton("🏢 GROUP ACTIVATION", callback_data="admin_groups")],  # NEW
-        [InlineKeyboardButton("🎁 WELCOME BONUS", callback_data="admin_welcome_bonus")],  # NEW
         [InlineKeyboardButton("🔙 MAIN MENU", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -1063,9 +900,6 @@ Invite friends and earn {settings_db.get('referral_reward', 5)} downloads per re
 
 👑 **OWNER:** {OWNER_NAME}
 📞 **SUPPORT:** {OWNER_USERNAME}
-
-🏢 **GROUP ACTIVATION:**
-If you're in an activated group, you have unlimited downloads!
     """
         
         if update.message:
@@ -1106,7 +940,6 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_keys = len(keys_db)
         used_keys = sum(1 for k in keys_db.values() if k.get("is_used", False))
         open_tickets = sum(1 for t in tickets_db.values() if t.get("status") == "open")
-        active_groups = len(get_active_groups())  # NEW
         
         for u in users_db.values():
             try:
@@ -1136,9 +969,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Used Keys: `{used_keys}`
 • Unused Keys: `{total_keys - used_keys}`
 • Open Tickets: `{open_tickets}`
-• Active Groups: `{active_groups}`  # NEW
 • Maintenance: `{'✅ ON' if settings_db.get('maintenance') else '❌ OFF'}`
-• Welcome Bonus: `{settings_db.get('welcome_bonus', 5)}`  # NEW
 
 👤 **YOUR ROLE:** {'👑 OWNER' if is_owner(user_id) else '🛡️ ADMIN'}
 
@@ -1190,14 +1021,6 @@ async def show_user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         referral_count = user_data.get('referral_count', 0)
         referral_link = f"https://t.me/{context.bot.username}?start=ref_{user_id}"
         
-        # Check if user is in any active group
-        is_unlimited = False
-        active_groups_info = []
-        for group_data in get_active_groups():
-            if user_id in group_data.get("unlimited_users", []):
-                is_unlimited = True
-                active_groups_info.append(f"Group {group_data['group_id']}")
-        
         stats_text = f"""
 📊 **YOUR STATISTICS** 📊
 
@@ -1217,14 +1040,9 @@ async def show_user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Referrals: `{referral_count}`
 • Referral Link: `{referral_link}`
 
-🏢 **GROUP STATUS:**
-• Unlimited Access: `{'✅ YES' if is_unlimited else '❌ NO'}`
-{f'• Active Groups: {", ".join(active_groups_info)}' if active_groups_info else ''}
-
 📅 **LAST ACTIVE:** `{last_active}`
 
 {'♾️ **OWNER PRIVILEGES:** Unlimited Downloads' if is_owner(user_id) else ''}
-{'🏢 **GROUP UNLIMITED:** No download limits!' if is_unlimited else ''}
     """
         
         await query.edit_message_text(
@@ -1292,14 +1110,6 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         referral_count = user_data.get('referral_count', 0)
         referral_link = f"https://t.me/{context.bot.username}?start=ref_{user_id}"
         
-        # Check if user is in any active group
-        is_unlimited = False
-        active_groups_info = []
-        for group_data in get_active_groups():
-            if user_id in group_data.get("unlimited_users", []):
-                is_unlimited = True
-                active_groups_info.append(f"Group {group_data['group_id']}")
-        
         stats_text = f"""
 📊 **YOUR STATISTICS** 📊
 
@@ -1319,14 +1129,9 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Referrals: `{referral_count}`
 • Referral Link: `{referral_link}`
 
-🏢 **GROUP STATUS:**
-• Unlimited Access: `{'✅ YES' if is_unlimited else '❌ NO'}`
-{f'• Active Groups: {", ".join(active_groups_info)}' if active_groups_info else ''}
-
 📅 **LAST ACTIVE:** `{last_active}`
 
 {'♾️ **OWNER PRIVILEGES:** Unlimited Downloads' if is_owner(user_id) else ''}
-{'🏢 **GROUP UNLIMITED:** No download limits!' if is_unlimited else ''}
     """
         
         await update.message.reply_text(
@@ -1523,49 +1328,44 @@ async def give_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in give command: {e}")
         await update.message.reply_text("❌ Error giving downloads.")
 
-# ===================== GROUP ACTIVATION COMMAND (NEW) =====================
-async def activategroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Activate group for unlimited downloads (owner only) - NEW"""
+# ===================== BROADCAST WITH IMAGE (NEW) =====================
+async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Broadcast message with image to all users (admin only)"""
     try:
         user_id = update.effective_user.id
         
-        if not is_owner(user_id):
-            await update.message.reply_text("❌ **OWNER ONLY COMMAND!**")
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ **ADMIN ONLY!**")
             return
         
-        if update.message.chat.type not in ['group', 'supergroup']:
-            await update.message.reply_text("❌ This command can only be used in groups!")
-            return
-        
-        group_id = update.message.chat.id
-        
-        if activate_group(group_id, user_id):
+        if update.message.photo:
+            # If message has a photo, use it for broadcast
+            photo_file_id = update.message.photo[-1].file_id
+            caption = update.message.caption or ""
+            
+            # Ask for confirmation
             await update.message.reply_text(
-                f"✅ **GROUP ACTIVATED!** ✅\n\n"
-                f"🏢 Group ID: `{group_id}`\n"
-                f"👑 Activated by: `{user_id}`\n\n"
-                f"All members of this group now have unlimited downloads!",
+                f"📢 **BROADCAST WITH IMAGE** 📢\n\n"
+                f"Caption: {caption[:100]}...\n\n"
+                f"Reply with `confirm_broadcast` to send this to all users\n"
+                f"Reply with `cancel_broadcast` to cancel",
                 parse_mode=ParseMode.MARKDOWN
             )
             
-            # Notify all group members
-            try:
-                await context.bot.send_message(
-                    chat_id=group_id,
-                    text=f"🎉 **GROUP ACTIVATED!** 🎉\n\n"
-                         f"This group has been activated for unlimited downloads!\n\n"
-                         f"🏢 All members now have unlimited access!\n"
-                         f"🎉 Enjoy downloading websites without limits!\n\n"
-                         f"Bot by {OWNER_NAME}",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except:
-                pass
+            # Store broadcast info in context
+            context.user_data['broadcast_photo'] = photo_file_id
+            context.user_data['broadcast_caption'] = caption
+            context.user_data['awaiting_broadcast_confirm'] = True
         else:
-            await update.message.reply_text("❌ Error activating group!")
+            await update.message.reply_text(
+                "📢 **BROADCAST WITH IMAGE** 📢\n\n"
+                "Please send a photo with caption to broadcast.\n\n"
+                "Example: Send a photo with caption 'New update available!'",
+                parse_mode=ParseMode.MARKDOWN
+            )
     except Exception as e:
-        logger.error(f"Error in activategroup command: {e}")
-        await update.message.reply_text("❌ Error activating group.")
+        logger.error(f"Error in broadcast command: {e}")
+        await update.message.reply_text("❌ Error preparing broadcast.")
 
 # ===================== ADMIN COMMAND HANDLERS (SYNAX System) =====================
 async def handle_add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1678,84 +1478,6 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error handling broadcast: {e}")
         await query.answer("❌ Error loading broadcast!", show_alert=True)
-
-# ===================== GROUP ACTIVATION HANDLERS (NEW) =====================
-async def handle_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle group activation from callback - NEW"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_owner(user_id):
-            await query.answer("❌ Owner Only!", show_alert=True)
-            return
-        
-        active_groups = get_active_groups()
-        
-        if not active_groups:
-            await query.edit_message_text(
-                "🏢 **GROUP ACTIVATION** 🏢\n\n"
-                "No active groups found.\n\n"
-                "Use /activategroup in any group to activate it for unlimited downloads.",
-                reply_markup=get_admin_menu(),
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        groups_text = "🏢 **ACTIVE GROUPS** 🏢\n\n"
-        
-        for group in active_groups:
-            group_id = group["group_id"]
-            activated_at = datetime.fromisoformat(group["activated_at"]).strftime('%d %b %Y')
-            activated_by = group["activated_by"]
-            member_count = len(group.get("unlimited_users", []))
-            
-            groups_text += f"🏢 **Group ID:** `{group_id}`\n"
-            groups_text += f"📅 **Activated:** {activated_at}\n"
-            groups_text += f"👑 **By:** `{activated_by}`\n"
-            groups_text += f"👥 **Unlimited Users:** {member_count}\n\n"
-        
-        groups_text += f"📊 **Total Active Groups:** {len(active_groups)}\n\n"
-        groups_text += "Use /deactivategroup <group_id> to deactivate a group."
-        
-        keyboard = [
-            [InlineKeyboardButton("🔙 ADMIN MENU", callback_data="admin_menu")]
-        ]
-        
-        await query.edit_message_text(
-            groups_text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    except Exception as e:
-        logger.error(f"Error handling groups: {e}")
-        await query.answer("❌ Error loading groups!", show_alert=True)
-
-async def handle_welcome_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle welcome bonus settings from callback - NEW"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_owner(user_id):
-            await query.answer("❌ Owner Only!", show_alert=True)
-            return
-        
-        current_bonus = settings_db.get("welcome_bonus", 5)
-        
-        await query.edit_message_text(
-            f"🎁 **WELCOME BONUS SETTINGS** 🎁\n\n"
-            f"Current welcome bonus: `{current_bonus}` downloads\n\n"
-            f"New users will get this many downloads when they first use the bot.\n\n"
-            f"Reply with:\n"
-            f"`welcome_bonus <number>`\n\n"
-            f"Example: `welcome_bonus 10`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        context.user_data['awaiting_welcome_bonus'] = True
-    except Exception as e:
-        logger.error(f"Error handling welcome bonus: {e}")
-        await query.answer("❌ Error loading settings!", show_alert=True)
 
 # ===================== BULK KEY GENERATION (FIXED) =====================
 async def handle_bulk_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2143,22 +1865,13 @@ async def process_url_download(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("🚫 **Your account is banned!**")
             return ConversationHandler.END
         
-        # Check if user has unlimited access in any group
-        has_unlimited = False
-        for group_data in get_active_groups():
-            if user_id in group_data.get("unlimited_users", []):
-                has_unlimited = True
-                break
-        
-        # Check downloads if not unlimited
-        if not has_unlimited and not is_owner(user_id):
-            if user_data["downloads_left"] <= 0:
-                await update.message.reply_text(
-                    "❌ **No downloads left!**\nUse BUY button to purchase more.\n\n"
-                    f"💡 **TIP:** Join an activated group for unlimited downloads!",
-                    reply_markup=get_buy_menu()
-                )
-                return ConversationHandler.END
+        # Check downloads
+        if user_data["downloads_left"] <= 0 and not is_owner(user_id):
+            await update.message.reply_text(
+                "❌ **No downloads left!**\nUse BUY button to purchase more.",
+                reply_markup=get_buy_menu()
+            )
+            return ConversationHandler.END
         
         # Clean URL
         url = clean_url(message_text)
@@ -2233,14 +1946,8 @@ Admin: {OWNER_USERNAME}
             parse_mode=ParseMode.MARKDOWN
         )
         
-        # Update user stats only if not unlimited
-        has_unlimited = False
-        for group_data in get_active_groups():
-            if user_id in group_data.get("unlimited_users", []):
-                has_unlimited = True
-                break
-        
-        if not has_unlimited and not is_owner(user_id):
+        # Update user stats
+        if not is_owner(user_id):
             user_data["downloads_left"] -= 1
         user_data["total_downloads"] += 1
         users_db[str(user_id)] = user_data
@@ -2249,11 +1956,7 @@ Admin: {OWNER_USERNAME}
         # Add to download history
         add_download_history(user_id, url, file_size, file_count)
         
-        status_text = f"✅ **Done!** File sent successfully.\n\nFiles: {file_count}\nSize: {file_size_mb:.1f}MB"
-        if has_unlimited:
-            status_text += "\n\n🏢 **UNLIMITED ACCESS** - No downloads deducted!"
-        
-        await query.edit_message_text(status_text)
+        await query.edit_message_text(f"✅ **Done!** File sent successfully.\n\nFiles: {file_count}\nSize: {file_size_mb:.1f}MB")
         return ConversationHandler.END
         
     except Exception as e:
@@ -2727,12 +2430,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             return
         
-        # Group activation handlers (NEW)
-        elif data == "admin_groups":
-            return await handle_groups(update, context)
-        elif data == "admin_welcome_bonus":
-            return await handle_welcome_bonus(update, context)
-        
         # Common handlers
         handlers = {
             "main_menu": lambda: query.edit_message_text(
@@ -2763,8 +2460,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "📞 **Contact for:**\n"
                 "• Subscription keys\n"
                 "• Custom bot development\n"
-                "• Technical support\n"
-                "• Group activation",
+                "• Technical support",
                 reply_markup=get_main_menu(),
                 parse_mode=ParseMode.MARKDOWN
             ),
@@ -2887,42 +2583,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users_db[str(user_id)] = user_data
         save_json(USERS_FILE, users_db)
         
-        # Handle welcome bonus setting (NEW)
-        if context.user_data.get('awaiting_welcome_bonus') and is_owner(user_id):
-            try:
-                parts = message_text.strip().split()
-                if len(parts) >= 2 and parts[0].lower() == "welcome_bonus":
-                    try:
-                        new_bonus = int(parts[1])
-                        if new_bonus >= 0 and new_bonus <= 100:
-                            settings_db["welcome_bonus"] = new_bonus
-                            save_json(SETTINGS_FILE, settings_db)
-                            
-                            await update.message.reply_text(
-                                f"✅ **Welcome bonus updated!**\n\n"
-                                f"New users will now get {new_bonus} downloads on first use.",
-                                parse_mode=ParseMode.MARKDOWN
-                            )
-                        else:
-                            await update.message.reply_text(
-                                "❌ **Invalid bonus amount!**\n"
-                                "Please enter a number between 0 and 100.",
-                                parse_mode=ParseMode.MARKDOWN
-                            )
-                    except ValueError:
-                        await update.message.reply_text(
-                            "❌ **Invalid format!**\n"
-                            "Usage: `welcome_bonus <number>`",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    finally:
-                        context.user_data['awaiting_welcome_bonus'] = False
-                return
-            except Exception as e:
-                logger.error(f"Error setting welcome bonus: {e}")
-                context.user_data['awaiting_welcome_bonus'] = False
-                return
-        
         # Handle key activation from message
         if context.user_data.get('awaiting_key'):
             key = message_text.strip().upper()
@@ -2961,7 +2621,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Check ban status
         if user_data.get("is_banned"):
-            if any(prefix in message_text for prefix in ['http://', 'https://', 'www.']) or '.' in message_text or message_text.startswith('/')):
+            if any(prefix in message_text for prefix in ['http://', 'https://', 'www.']) or '.' in message_text or message_text.startswith('/'):
                 await update.message.reply_text("🚫 **Your account is banned!**")
             return
         
@@ -3035,6 +2695,51 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await process_bulk_generation(update, context)
             return
         
+        # Handle broadcast confirmation
+        if context.user_data.get('awaiting_broadcast_confirm') and is_admin(user_id):
+            if message_text.lower() == "confirm_broadcast":
+                # Get broadcast info
+                photo_file_id = context.user_data.get('broadcast_photo')
+                caption = context.user_data.get('broadcast_caption', '')
+                
+                # Broadcast to all users
+                success = 0
+                failed = 0
+                
+                await update.message.reply_text(f"📢 Broadcasting to {len(users_db)} users...")
+                
+                for uid_str in users_db.keys():
+                    try:
+                        await context.bot.send_photo(
+                            chat_id=int(uid_str),
+                            photo=photo_file_id,
+                            caption=f"📢 **BROADCAST:**\n\n{caption}",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                        success += 1
+                    except:
+                        failed += 1
+                
+                await update.message.reply_text(
+                    f"✅ **Broadcast Complete!**\n\n"
+                    f"✅ Success: {success}\n"
+                    f"❌ Failed: {failed}"
+                )
+                
+                # Reset state
+                context.user_data['awaiting_broadcast_confirm'] = False
+                context.user_data.pop('broadcast_photo', None)
+                context.user_data.pop('broadcast_caption', None)
+                return
+            elif message_text.lower() == "cancel_broadcast":
+                await update.message.reply_text("❌ Broadcast cancelled.")
+                
+                # Reset state
+                context.user_data['awaiting_broadcast_confirm'] = False
+                context.user_data.pop('broadcast_photo', None)
+                context.user_data.pop('broadcast_caption', None)
+                return
+        
         # Handle admin commands in messages
         if context.user_data.get('awaiting_broadcast') and is_admin(user_id):
             # Broadcast message
@@ -3098,7 +2803,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if len(parts) >= 2 and parts[0].lower() == "ban":
                 try:
                     target_id = int(parts[1])
-                    reason = " ".join(parts[2:]) if len(parts) > 2 else "No reason provided")
+                    reason = " ".join(parts[2:]) if len(parts) > 2 else "No reason provided"
                     
                     if ban_user(target_id, reason):
                         await update.message.reply_text(f"✅ **User banned successfully!**\nID: `{target_id}`\nReason: {reason}")
@@ -3251,36 +2956,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.message:
             await update.message.reply_text("❌ An error occurred. Please try again.")
 
-# ===================== CHAT MEMBER HANDLER (NEW) =====================
-async def chat_member_update(update: ChatMemberUpdated, context: ContextTypes.DEFAULT_TYPE):
-    """Handle chat member updates for group activation - NEW"""
-    try:
-        # Check if it's a group/supergroup
-        if update.chat.type not in ['group', 'supergroup']:
-            return
-        
-        group_id = update.chat.id
-        user = update.new_chat_member.user
-        
-        # Check if group is active
-        group_info = get_group_info(group_id)
-        if not group_info.get("is_active", False):
-            return
-        
-        # Add user to unlimited list if not already there
-        add_unlimited_user_to_group(group_id, user.id)
-        
-        # Log the addition
-        logger.info(f"Added user {user.id} to unlimited list for group {group_id}")
-    except Exception as e:
-        logger.error(f"Error in chat member update: {e}")
-
 # ===================== PHOTO HANDLER (NEW - PAYMENT SCREENSHOTS) =====================
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle photo uploads - for payment screenshots and broadcasts - Enhanced"""
     try:
         user_id = update.effective_user.id
         user_data = get_user_stats(user_id)
+        
+        # Handle broadcast photo
+        if context.user_data.get('awaiting_broadcast') and is_admin(user_id):
+            # Store photo for broadcast
+            photo_file_id = update.message.photo[-1].file_id
+            caption = update.message.caption or ""
+            
+            # Ask for confirmation
+            await update.message.reply_text(
+                f"📢 **BROADCAST WITH IMAGE** 📢\n\n"
+                f"Caption: {caption[:100]}...\n\n"
+                f"Reply with `confirm_broadcast` to send this to all users\n"
+                f"Reply with `cancel_broadcast` to cancel",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            # Store broadcast info in context
+            context.user_data['broadcast_photo'] = photo_file_id
+            context.user_data['broadcast_caption'] = caption
+            context.user_data['awaiting_broadcast'] = False
+            context.user_data['awaiting_broadcast_confirm'] = True
+            return
         
         # Check if user has a pending payment
         user_payments = [p for p in payments_db.values() 
@@ -3367,8 +3070,9 @@ async def setup_commands(application: Application):
         BotCommand("activate", "Activate subscription key"),
         BotCommand("generate", "Generate key (admin only)"),
         BotCommand("give", "Give downloads to user (owner only)"),
-        BotCommand("activategroup", "Activate group for unlimited downloads (owner only)"),  # NEW
-        BotCommand("deactivategroup", "Deactivate group (owner only)")  # NEW
+        BotCommand("broadcast", "Broadcast message with image (admin only)"),
+        BotCommand("support", "Create support ticket"),
+        BotCommand("referral", "Get your referral link")
     ]
     
     await application.bot.set_my_commands(commands)
@@ -3376,6 +3080,17 @@ async def setup_commands(application: Application):
 # ===================== MAIN FUNCTION =====================
 def main():
     """Start the bot - Enhanced"""
+    # Check if wget is installed
+    try:
+        subprocess.run(["which", "wget"], check=True, capture_output=True)
+        print("✅ wget is installed")
+    except:
+        print("❌ ERROR: wget is not installed!")
+        print("Install it with:")
+        print("  Ubuntu/Debian: sudo apt install wget")
+        print("  Termux: pkg install wget")
+        exit(1)
+    
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
     
@@ -3405,14 +3120,14 @@ def main():
     application.add_handler(CommandHandler("activate", activate_key_command))
     application.add_handler(CommandHandler("generate", generate_key_command))
     application.add_handler(CommandHandler("give", give_command))
-    application.add_handler(CommandHandler("activategroup", activategroup_command))  # NEW
-    application.add_handler(CommandHandler("deactivategroup", deactivategroup_command))  # NEW
+    application.add_handler(CommandHandler("broadcast", broadcast_command))
+    application.add_handler(CommandHandler("support", lambda u, c: handle_support_menu(u, c)))
+    application.add_handler(CommandHandler("referral", lambda u, c: handle_my_referral(u, c)))
     
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(conv_handler)
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(ChatMemberHandler(chat_member_update))  # NEW
     
     # Add error handler
     application.add_error_handler(error_handler)
@@ -3437,8 +3152,6 @@ def main():
     print("8. ⚙️ Maintenance Mode")
     print("9. 📊 Advanced Statistics")
     print("10. 🎯 Button Menu System")
-    print("11. 🏢 GROUP ACTIVATION SYSTEM (NEW)")
-    print("12. 🎁 WELCOME BONUS SYSTEM (NEW)")
     print("=" * 60)
     print("\n✅ **SECOND BOT FEATURES ADDED:**")
     print("1. 🌐 Clean URL to ZIP Conversion")
@@ -3467,10 +3180,6 @@ def main():
     print("18. 🔧 FIXED: All potential crash points with try-catch blocks")
     print("19. 📊 FIXED: Database operations with proper error handling")
     print("20. 🔄 FIXED: Callback handler with proper error management")
-    print("21. 🔧 FIXED: Replaced wget with urllib for better compatibility")
-    print("22. 🏢 FIXED: Group Activation System - Members get unlimited downloads")
-    print("23. 🎁 FIXED: Welcome Bonus System - New users get bonus downloads")
-    print("24. 🛡️ FIXED: Chat member handler for group activation")
     print("=" * 60)
     print("\n📁 **DATABASE FILES CREATED:**")
     print(f"  • {USERS_FILE} - All users data")
@@ -3482,12 +3191,9 @@ def main():
     print(f"  • {BULK_KEYS_FILE} - Bulk key generation records")
     print(f"  • {TICKETS_FILE} - Support tickets")
     print(f"  • {REPORTS_FILE} - User reports")
-    print(f"  • {GROUPS_FILE} - Group activation records")  # NEW
     print("=" * 60)
     print("\n🚀 **BOT STARTED SUCCESSFULLY!**")
     print("🛡️ Bot is now CRASH-PROOF with comprehensive error handling!")
-    print("🏢 Group activation system enabled!")
-    print("🎁 Welcome bonus system enabled!")
     print("=" * 60)
     
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
