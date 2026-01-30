@@ -38,7 +38,7 @@ from telegram.constants import ParseMode, ChatAction
 from telegram.error import TelegramError, BadRequest
 
 # ===================== CONFIGURATION =====================
-BOT_TOKEN = "8246763985:AAFDOdJlNGO4WNyE9geP_JYk_MRx3aE4Rmk"  # Using your token
+BOT_TOKEN = "8538798053:AAH5FIriSDivlPcd-NwuCCz9iOc6RiwHVR0"  # Using your token
 
 # OWNER DETAILS - SYNAX Network
 OWNER_ID = 7998441787
@@ -55,7 +55,7 @@ PROMOTION_GROUPS = [
 ]
 
 # QR Code Image URL
-QR_CODE_URL = "https://i.ibb.co/4nZvRgJg/Screenshot-20251218-124441-Phone-Pe.jpg"
+QR_CODE_URL = "https://i.ibb.co/nsfk7Vx0/20260112-051110.jpg"
 
 # MAX FILE SIZE
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
