@@ -55,7 +55,7 @@ PROMOTION_GROUPS = [
 ]
 
 # QR Code Image URL
-QR_CODE_URL = "https://i.ibb.co/nsfk7Vx0/20260112-051110.jpg"
+QR_CODE_URL = "https://i.ibb.co/4nZvRgJg/Screenshot-20251218-124441-Phone-Pe.jpg"
 
 # MAX FILE SIZE
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
