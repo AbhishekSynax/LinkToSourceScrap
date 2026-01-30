@@ -33,7 +33,7 @@ from telegram.constants import ParseMode, ChatAction
 from telegram.error import TelegramError, BadRequest
 
 # ===================== CONFIGURATION =====================
-BOT_TOKEN = "8246763985:AAFDOdJlNGO4WNyE9geP_JYk_MRx3aE4Rmk"  # Using your token
+BOT_TOKEN = "8538798053:AAH5FIriSDivlPcd-NwuCCz9iOc6RiwHVR0"  # Using your token
 
 # OWNER DETAILS - SYNAX Network
 OWNER_ID = 7998441787
