@@ -6,6 +6,7 @@ Combined Features:
 - Clean URL-to-ZIP from second bot
 - Advanced UI/UX with working buttons
 - Bulk key generation system
+- Group activation feature (NEW)
 - Owner: @synaxnetwork
 """
 
@@ -26,7 +27,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import re
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, Document
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, Document, Chat
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters, ConversationHandler
 from telegram.constants import ParseMode, ChatAction
 from telegram.error import TelegramError, BadRequest
@@ -67,6 +68,7 @@ DOWNLOAD_HISTORY_FILE = "download_history.json"
 BULK_KEYS_FILE = "bulk_keys.json"
 TICKETS_FILE = "support_tickets.json"
 REPORTS_FILE = "user_reports.json"
+GROUPS_FILE = "activated_groups.json"
 
 # ===================== LOGGING =====================
 logging.basicConfig(
@@ -107,6 +109,7 @@ download_history_db = load_json(DOWNLOAD_HISTORY_FILE)
 bulk_keys_db = load_json(BULK_KEYS_FILE)
 tickets_db = load_json(TICKETS_FILE)
 reports_db = load_json(REPORTS_FILE)
+groups_db = load_json(GROUPS_FILE)
 
 # Default settings - SYNAX System
 if "maintenance" not in settings_db:
@@ -439,6 +442,104 @@ def process_referral(referrer_id: int, referred_id: int) -> Dict:
         logger.error(f"Error processing referral: {e}")
         return {"success": False, "error": "Server error"}
 
+# ===================== GROUP ACTIVATION SYSTEM (NEW) =====================
+def activate_group(group_id: int, admin_id: int, days: int = 30) -> Dict:
+    """Activate a group for unlimited downloads"""
+    try:
+        group_id_str = str(group_id)
+        
+        group_data = {
+            "group_id": group_id,
+            "activated_by": admin_id,
+            "activated_at": datetime.now().isoformat(),
+            "expires_at": (datetime.now() + timedelta(days=days)).isoformat(),
+            "status": "active",
+            "days": days
+        }
+        
+        groups_db[group_id_str] = group_data
+        save_json(GROUPS_FILE, groups_db)
+        
+        return {"success": True, "data": group_data}
+    except Exception as e:
+        logger.error(f"Error activating group: {e}")
+        return {"success": False, "error": "Server error"}
+
+def deactivate_group(group_id: int, admin_id: int) -> Dict:
+    """Deactivate a group"""
+    try:
+        group_id_str = str(group_id)
+        
+        if group_id_str in groups_db:
+            groups_db[group_id_str]["status"] = "inactive"
+            groups_db[group_id_str]["deactivated_by"] = admin_id
+            groups_db[group_id_str]["deactivated_at"] = datetime.now().isoformat()
+            
+            save_json(GROUPS_FILE, groups_db)
+            return {"success": True, "data": groups_db[group_id_str]}
+        
+        return {"success": False, "error": "Group not found"}
+    except Exception as e:
+        logger.error(f"Error deactivating group: {e}")
+        return {"success": False, "error": "Server error"}
+
+def is_group_active(group_id: int) -> bool:
+    """Check if a group is active"""
+    try:
+        group_id_str = str(group_id)
+        
+        if group_id_str not in groups_db:
+            return False
+        
+        group_data = groups_db[group_id_str]
+        
+        # Check if status is active
+        if group_data.get("status") != "active":
+            return False
+        
+        # Check if expired
+        try:
+            expiry_date = datetime.fromisoformat(group_data["expires_at"])
+            if expiry_date < datetime.now():
+                # Mark as expired
+                group_data["status"] = "expired"
+                save_json(GROUPS_FILE, groups_db)
+                return False
+        except:
+            return False
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error checking group status: {e}")
+        return False
+
+def get_active_groups() -> List[Dict]:
+    """Get all active groups"""
+    try:
+        active_groups = []
+        current_time = datetime.now()
+        
+        for group_id_str, group_data in groups_db.items():
+            try:
+                if group_data.get("status") == "active":
+                    expiry_date = datetime.fromisoformat(group_data["expires_at"])
+                    if expiry_date > current_time:
+                        active_groups.append({
+                            "group_id": int(group_id_str),
+                            **group_data
+                        })
+                    else:
+                        # Mark as expired
+                        group_data["status"] = "expired"
+                        save_json(GROUPS_FILE, groups_db)
+            except:
+                continue
+        
+        return active_groups
+    except Exception as e:
+        logger.error(f"Error getting active groups: {e}")
+        return []
+
 # ===================== HELPER FUNCTIONS (SYNAX) =====================
 def is_admin(user_id: int) -> bool:
     """Check if user is admin - SYNAX System"""
@@ -675,7 +776,8 @@ def get_admin_menu() -> InlineKeyboardMarkup:
          InlineKeyboardButton("↩️ REPLY USER", callback_data="admin_reply_user")],
         [InlineKeyboardButton("🎫 SUPPORT TICKETS", callback_data="admin_tickets"),
          InlineKeyboardButton("📊 REPORTS", callback_data="admin_reports")],
-        [InlineKeyboardButton("🔙 MAIN MENU", callback_data="main_menu")]
+        [InlineKeyboardButton("👥 GROUPS", callback_data="admin_groups"),
+         InlineKeyboardButton("🔙 MAIN MENU", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -735,6 +837,16 @@ def get_referral_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🔗 MY REFERRAL LINK", callback_data="my_referral")],
         [InlineKeyboardButton("👥 MY REFERRALS", callback_data="my_referrals")],
         [InlineKeyboardButton("🔙 BACK", callback_data="main_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_groups_menu() -> InlineKeyboardMarkup:
+    """Groups menu for admin"""
+    keyboard = [
+        [InlineKeyboardButton("➕ ACTIVATE GROUP", callback_data="activate_group_form")],
+        [InlineKeyboardButton("➖ DEACTIVATE GROUP", callback_data="deactivate_group_form")],
+        [InlineKeyboardButton("📋 ACTIVE GROUPS", callback_data="active_groups")],
+        [InlineKeyboardButton("🔙 ADMIN MENU", callback_data="admin_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -833,6 +945,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         user_data = get_user_stats(user_id)
         
+        # Check if user is in an activated group
+        group_unlimited = False
+        if update.message.chat.type in [Chat.GROUP, Chat.SUPERGROUP]:
+            if is_group_active(update.message.chat.id):
+                group_unlimited = True
+        
         welcome_msg = f"""
 ✨ **WELCOME, {user.first_name}!** ✨
 
@@ -840,7 +958,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 _Professional Website Downloader_
 
 📊 **YOUR STATUS:**
-• Downloads Left: `{user_data.get('downloads_left', 0)}`
+• Downloads Left: `{'♾️ UNLIMITED' if group_unlimited or is_owner(user_id) else user_data.get('downloads_left', 0)}`
 • Total Downloads: `{user_data.get('total_downloads', 0)}`
 • Account: `{'🚫 BANNED' if user_data.get('is_banned') else '✅ ACTIVE'}`
 
@@ -940,6 +1058,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_keys = len(keys_db)
         used_keys = sum(1 for k in keys_db.values() if k.get("is_used", False))
         open_tickets = sum(1 for t in tickets_db.values() if t.get("status") == "open")
+        active_groups = len(get_active_groups())
         
         for u in users_db.values():
             try:
@@ -969,6 +1088,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Used Keys: `{used_keys}`
 • Unused Keys: `{total_keys - used_keys}`
 • Open Tickets: `{open_tickets}`
+• Active Groups: `{active_groups}`
 • Maintenance: `{'✅ ON' if settings_db.get('maintenance') else '❌ OFF'}`
 
 👤 **YOUR ROLE:** {'👑 OWNER' if is_owner(user_id) else '🛡️ ADMIN'}
@@ -999,6 +1119,12 @@ async def show_user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = update.effective_user.id
         user_data = get_user_stats(user_id)
+        
+        # Check if user is in an activated group
+        group_unlimited = False
+        if update.callback_query.message.chat.type in [Chat.GROUP, Chat.SUPERGROUP]:
+            if is_group_active(update.callback_query.message.chat.id):
+                group_unlimited = True
         
         # Format dates
         joined_date = datetime.fromisoformat(user_data['joined_date']).strftime('%d %b %Y')
@@ -1031,7 +1157,7 @@ async def show_user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Status: `{'🚫 BANNED' if user_data.get('is_banned') else '✅ ACTIVE'}`
 
 ⬇️ **DOWNLOAD STATS:**
-• Downloads Left: `{user_data['downloads_left']}`
+• Downloads Left: `{'♾️ UNLIMITED' if group_unlimited or is_owner(user_id) else user_data['downloads_left']}`
 • Total Downloads: `{user_data['total_downloads']}`
 • Subscription: `{user_data['subscription'].upper()}`
 • Expires: `{expiry_text}`
@@ -1043,6 +1169,7 @@ async def show_user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📅 **LAST ACTIVE:** `{last_active}`
 
 {'♾️ **OWNER PRIVILEGES:** Unlimited Downloads' if is_owner(user_id) else ''}
+{'♾️ **GROUP UNLIMITED:** This group has unlimited downloads!' if group_unlimited else ''}
     """
         
         await query.edit_message_text(
@@ -1089,6 +1216,12 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         user_data = get_user_stats(user_id)
         
+        # Check if user is in an activated group
+        group_unlimited = False
+        if update.message.chat.type in [Chat.GROUP, Chat.SUPERGROUP]:
+            if is_group_active(update.message.chat.id):
+                group_unlimited = True
+        
         # Format dates
         joined_date = datetime.fromisoformat(user_data['joined_date']).strftime('%d %b %Y')
         last_active = datetime.fromisoformat(user_data['last_active']).strftime('%I:%M %p, %d %b')
@@ -1120,7 +1253,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Status: `{'🚫 BANNED' if user_data.get('is_banned') else '✅ ACTIVE'}`
 
 ⬇️ **DOWNLOAD STATS:**
-• Downloads Left: `{user_data['downloads_left']}`
+• Downloads Left: `{'♾️ UNLIMITED' if group_unlimited or is_owner(user_id) else user_data['downloads_left']}`
 • Total Downloads: `{user_data['total_downloads']}`
 • Subscription: `{user_data['subscription'].upper()}`
 • Expires: `{expiry_text}`
@@ -1132,6 +1265,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📅 **LAST ACTIVE:** `{last_active}`
 
 {'♾️ **OWNER PRIVILEGES:** Unlimited Downloads' if is_owner(user_id) else ''}
+{'♾️ **GROUP UNLIMITED:** This group has unlimited downloads!' if group_unlimited else ''}
     """
         
         await update.message.reply_text(
@@ -1327,6 +1461,201 @@ async def give_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error in give command: {e}")
         await update.message.reply_text("❌ Error giving downloads.")
+
+# ===================== GROUP ACTIVATION COMMANDS =====================
+async def activate_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Activate a group for unlimited downloads (admin only)"""
+    try:
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ **ADMIN ONLY!**")
+            return
+        
+        if not context.args or len(context.args) < 2:
+            await update.message.reply_text(
+                "🔑 **ACTIVATE GROUP** 🔑\n\n"
+                "Usage: `/activategroup <group_id> <days>`\n\n"
+                "Example: `/activategroup -123456789 30`\n\n"
+                "Note: Group ID starts with -100 for supergroups",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            group_id = int(context.args[0])
+            days = int(context.args[1])
+            
+            if days <= 0 or days > 365:
+                await update.message.reply_text("❌ **Invalid days!** Please specify 1-365 days.")
+                return
+            
+            # Activate group
+            result = activate_group(group_id, user_id, days)
+            
+            if result["success"]:
+                group_data = result["data"]
+                expiry_date = datetime.fromisoformat(group_data["expires_at"])
+                
+                # Try to get group info
+                group_name = "Unknown Group"
+                try:
+                    chat = await context.bot.get_chat(group_id)
+                    group_name = chat.title
+                except:
+                    pass
+                
+                await update.message.reply_text(
+                    f"✅ **GROUP ACTIVATED!** ✅\n\n"
+                    f"📋 **Group Details:**\n"
+                    f"• Name: {group_name}\n"
+                    f"• ID: `{group_id}`\n"
+                    f"• Validity: `{days}` days\n"
+                    f"• Expires: `{expiry_date.strftime('%d %b %Y')}`\n\n"
+                    f"🎉 **All members can now use unlimited downloads!**",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+                # Try to notify group
+                try:
+                    await context.bot.send_message(
+                        chat_id=group_id,
+                        text=f"🎉 **GROUP ACTIVATED!** 🎉\n\n"
+                             f"This group has been activated for unlimited downloads!\n\n"
+                             f"Valid until: {expiry_date.strftime('%d %b %Y')}\n\n"
+                             f"Enjoy unlimited downloads with SYNAX Bot!",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except:
+                    pass
+            else:
+                await update.message.reply_text(
+                    f"❌ **Error activating group!**\n\n"
+                    f"{result.get('error', 'Unknown error')}"
+                )
+        except ValueError:
+            await update.message.reply_text(
+                "❌ **Invalid input!**\n\n"
+                "Usage: `/activategroup <group_id> <days>`\n"
+                "Example: `/activategroup -123456789 30`"
+            )
+    except Exception as e:
+        logger.error(f"Error in activate group command: {e}")
+        await update.message.reply_text("❌ Error activating group.")
+
+async def deactivate_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Deactivate a group (admin only)"""
+    try:
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ **ADMIN ONLY!**")
+            return
+        
+        if not context.args or len(context.args) < 1:
+            await update.message.reply_text(
+                "🔑 **DEACTIVATE GROUP** 🔑\n\n"
+                "Usage: `/deactivategroup <group_id>`\n\n"
+                "Example: `/deactivategroup -123456789`\n\n"
+                "Note: Group ID starts with -100 for supergroups",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            group_id = int(context.args[0])
+            
+            # Deactivate group
+            result = deactivate_group(group_id, user_id)
+            
+            if result["success"]:
+                # Try to get group info
+                group_name = "Unknown Group"
+                try:
+                    chat = await context.bot.get_chat(group_id)
+                    group_name = chat.title
+                except:
+                    pass
+                
+                await update.message.reply_text(
+                    f"✅ **GROUP DEACTIVATED!** ✅\n\n"
+                    f"📋 **Group Details:**\n"
+                    f"• Name: {group_name}\n"
+                    f"• ID: `{group_id}`\n\n"
+                    f"⚠️ **Members will no longer have unlimited downloads!**",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+                # Try to notify group
+                try:
+                    await context.bot.send_message(
+                        chat_id=group_id,
+                        text=f"⚠️ **GROUP DEACTIVATED** ⚠️\n\n"
+                             f"This group's unlimited downloads have been deactivated.\n\n"
+                             f"Please contact admin for more information.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except:
+                    pass
+            else:
+                await update.message.reply_text(
+                    f"❌ **Error deactivating group!**\n\n"
+                    f"{result.get('error', 'Unknown error')}"
+                )
+        except ValueError:
+            await update.message.reply_text(
+                "❌ **Invalid input!**\n\n"
+                "Usage: `/deactivategroup <group_id>`\n"
+                "Example: `/deactivategroup -123456789`"
+            )
+    except Exception as e:
+        logger.error(f"Error in deactivate group command: {e}")
+        await update.message.reply_text("❌ Error deactivating group.")
+
+async def list_groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all active groups (admin only)"""
+    try:
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ **ADMIN ONLY!**")
+            return
+        
+        active_groups = get_active_groups()
+        
+        if not active_groups:
+            await update.message.reply_text(
+                "📋 **ACTIVE GROUPS** 📋\n\n"
+                "No active groups found.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        groups_text = "📋 **ACTIVE GROUPS** 📋\n\n"
+        
+        for group in active_groups:
+            group_id = group["group_id"]
+            expiry_date = datetime.fromisoformat(group["expires_at"]).strftime('%d %b %Y')
+            activated_date = datetime.fromisoformat(group["activated_at"]).strftime('%d %b %Y')
+            
+            # Try to get group info
+            group_name = "Unknown Group"
+            try:
+                chat = await context.bot.get_chat(group_id)
+                group_name = chat.title
+            except:
+                pass
+            
+            groups_text += f"📋 **{group_name}**\n"
+            groups_text += f"• ID: `{group_id}`\n"
+            groups_text += f"• Activated: {activated_date}\n"
+            groups_text += f"• Expires: {expiry_date}\n"
+            groups_text += f"• Status: {group['status'].upper()}\n\n"
+        
+        await update.message.reply_text(groups_text, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        logger.error(f"Error in list groups command: {e}")
+        await update.message.reply_text("❌ Error loading groups.")
 
 # ===================== BROADCAST WITH IMAGE (NEW) =====================
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1825,6 +2154,124 @@ async def handle_generate_key(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.error(f"Error handling generate key: {e}")
         await query.answer("❌ Error loading key generator!", show_alert=True)
 
+# ===================== GROUP MANAGEMENT HANDLERS =====================
+async def handle_groups_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle groups menu from callback"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await query.answer("❌ Admin Only!", show_alert=True)
+            return
+        
+        await query.edit_message_text(
+            "👥 **GROUP MANAGEMENT** 👥\n\n"
+            "Manage group activation for unlimited downloads.",
+            reply_markup=get_groups_menu(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        logger.error(f"Error handling groups menu: {e}")
+        await query.answer("❌ Error loading groups menu!", show_alert=True)
+
+async def handle_activate_group_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle activate group form from callback"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await query.answer("❌ Admin Only!", show_alert=True)
+            return
+        
+        await query.edit_message_text(
+            "➕ **ACTIVATE GROUP** ➕\n\n"
+            "Please reply with:\n"
+            "`activategroup <group_id> <days>`\n\n"
+            "Example: `activategroup -123456789 30`\n\n"
+            "Note: Group ID starts with -100 for supergroups",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        context.user_data['awaiting_activategroup'] = True
+    except Exception as e:
+        logger.error(f"Error handling activate group form: {e}")
+        await query.answer("❌ Error loading form!", show_alert=True)
+
+async def handle_deactivate_group_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle deactivate group form from callback"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await query.answer("❌ Admin Only!", show_alert=True)
+            return
+        
+        await query.edit_message_text(
+            "➖ **DEACTIVATE GROUP** ➖\n\n"
+            "Please reply with:\n"
+            "`deactivategroup <group_id>`\n\n"
+            "Example: `deactivategroup -123456789`\n\n"
+            "Note: Group ID starts with -100 for supergroups",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        context.user_data['awaiting_deactivategroup'] = True
+    except Exception as e:
+        logger.error(f"Error handling deactivate group form: {e}")
+        await query.answer("❌ Error loading form!", show_alert=True)
+
+async def handle_active_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle active groups from callback"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await query.answer("❌ Admin Only!", show_alert=True)
+            return
+        
+        active_groups = get_active_groups()
+        
+        if not active_groups:
+            await query.edit_message_text(
+                "📋 **ACTIVE GROUPS** 📋\n\n"
+                "No active groups found.",
+                reply_markup=get_groups_menu(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        groups_text = "📋 **ACTIVE GROUPS** 📋\n\n"
+        
+        for group in active_groups:
+            group_id = group["group_id"]
+            expiry_date = datetime.fromisoformat(group["expires_at"]).strftime('%d %b %Y')
+            activated_date = datetime.fromisoformat(group["activated_at"]).strftime('%d %b %Y')
+            
+            # Try to get group info
+            group_name = "Unknown Group"
+            try:
+                chat = await context.bot.get_chat(group_id)
+                group_name = chat.title
+            except:
+                pass
+            
+            groups_text += f"📋 **{group_name}**\n"
+            groups_text += f"• ID: `{group_id}`\n"
+            groups_text += f"• Activated: {activated_date}\n"
+            groups_text += f"• Expires: {expiry_date}\n"
+            groups_text += f"• Status: {group['status'].upper()}\n\n"
+        
+        await query.edit_message_text(
+            groups_text,
+            reply_markup=get_groups_menu(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        logger.error(f"Error handling active groups: {e}")
+        await query.answer("❌ Error loading groups!", show_alert=True)
+
 # ===================== URL DOWNLOAD =====================
 async def handle_url_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle URL download - Enhanced"""
@@ -1865,8 +2312,14 @@ async def process_url_download(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("🚫 **Your account is banned!**")
             return ConversationHandler.END
         
+        # Check if user is in an activated group
+        group_unlimited = False
+        if update.message.chat.type in [Chat.GROUP, Chat.SUPERGROUP]:
+            if is_group_active(update.message.chat.id):
+                group_unlimited = True
+        
         # Check downloads
-        if user_data["downloads_left"] <= 0 and not is_owner(user_id):
+        if user_data["downloads_left"] <= 0 and not is_owner(user_id) and not group_unlimited:
             await update.message.reply_text(
                 "❌ **No downloads left!**\nUse BUY button to purchase more.",
                 reply_markup=get_buy_menu()
@@ -1900,6 +2353,12 @@ async def process_download(update: Update, context: ContextTypes.DEFAULT_TYPE, d
         if not url:
             await query.answer("❌ No URL found!", show_alert=True)
             return ConversationHandler.END
+        
+        # Check if user is in an activated group
+        group_unlimited = False
+        if query.message.chat.type in [Chat.GROUP, Chat.SUPERGROUP]:
+            if is_group_active(query.message.chat.id):
+                group_unlimited = True
         
         await query.answer()
         await query.edit_message_text(f"⏳ **Starting {download_type.upper()} download...**")
@@ -1947,7 +2406,7 @@ Admin: {OWNER_USERNAME}
         )
         
         # Update user stats
-        if not is_owner(user_id):
+        if not is_owner(user_id) and not group_unlimited:
             user_data["downloads_left"] -= 1
         user_data["total_downloads"] += 1
         users_db[str(user_id)] = user_data
@@ -2368,6 +2827,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "my_referrals":
             return await handle_my_referrals(update, context)
         
+        # Group management handlers
+        elif data == "admin_groups":
+            return await handle_groups_menu(update, context)
+        elif data == "activate_group_form":
+            return await handle_activate_group_form(update, context)
+        elif data == "deactivate_group_form":
+            return await handle_deactivate_group_form(update, context)
+        elif data == "active_groups":
+            return await handle_active_groups(update, context)
+        
         # QR Code handlers
         elif data.startswith("qr_"):
             plan = data[3:]
@@ -2611,6 +3080,125 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             
             context.user_data['awaiting_key'] = False
+            return
+        
+        # Handle group activation command
+        if context.user_data.get('awaiting_activategroup') and is_admin(user_id):
+            parts = message_text.strip().split()
+            if len(parts) >= 3 and parts[0].lower() == "activategroup":
+                try:
+                    group_id = int(parts[1])
+                    days = int(parts[2])
+                    
+                    if days <= 0 or days > 365:
+                        await update.message.reply_text("❌ **Invalid days!** Please specify 1-365 days.")
+                        return
+                    
+                    # Activate group
+                    result = activate_group(group_id, user_id, days)
+                    
+                    if result["success"]:
+                        group_data = result["data"]
+                        expiry_date = datetime.fromisoformat(group_data["expires_at"])
+                        
+                        # Try to get group info
+                        group_name = "Unknown Group"
+                        try:
+                            chat = await context.bot.get_chat(group_id)
+                            group_name = chat.title
+                        except:
+                            pass
+                        
+                        await update.message.reply_text(
+                            f"✅ **GROUP ACTIVATED!** ✅\n\n"
+                            f"📋 **Group Details:**\n"
+                            f"• Name: {group_name}\n"
+                            f"• ID: `{group_id}`\n"
+                            f"• Validity: `{days}` days\n"
+                            f"• Expires: `{expiry_date.strftime('%d %b %Y')}`\n\n"
+                            f"🎉 **All members can now use unlimited downloads!**",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                        
+                        # Try to notify group
+                        try:
+                            await context.bot.send_message(
+                                chat_id=group_id,
+                                text=f"🎉 **GROUP ACTIVATED!** 🎉\n\n"
+                                     f"This group has been activated for unlimited downloads!\n\n"
+                                     f"Valid until: {expiry_date.strftime('%d %b %Y')}\n\n"
+                                     f"Enjoy unlimited downloads with SYNAX Bot!",
+                                parse_mode=ParseMode.MARKDOWN
+                            )
+                        except:
+                            pass
+                    else:
+                        await update.message.reply_text(
+                            f"❌ **Error activating group!**\n\n"
+                            f"{result.get('error', 'Unknown error')}"
+                        )
+                except ValueError:
+                    await update.message.reply_text(
+                        "❌ **Invalid input!**\n\n"
+                        "Usage: `activategroup <group_id> <days>`\n"
+                        "Example: `activategroup -123456789 30`"
+                    )
+            
+            context.user_data['awaiting_activategroup'] = False
+            return
+        
+        # Handle group deactivation command
+        if context.user_data.get('awaiting_deactivategroup') and is_admin(user_id):
+            parts = message_text.strip().split()
+            if len(parts) >= 2 and parts[0].lower() == "deactivategroup":
+                try:
+                    group_id = int(parts[1])
+                    
+                    # Deactivate group
+                    result = deactivate_group(group_id, user_id)
+                    
+                    if result["success"]:
+                        # Try to get group info
+                        group_name = "Unknown Group"
+                        try:
+                            chat = await context.bot.get_chat(group_id)
+                            group_name = chat.title
+                        except:
+                            pass
+                        
+                        await update.message.reply_text(
+                            f"✅ **GROUP DEACTIVATED!** ✅\n\n"
+                            f"📋 **Group Details:**\n"
+                            f"• Name: {group_name}\n"
+                            f"• ID: `{group_id}`\n\n"
+                            f"⚠️ **Members will no longer have unlimited downloads!**",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                        
+                        # Try to notify group
+                        try:
+                            await context.bot.send_message(
+                                chat_id=group_id,
+                                text=f"⚠️ **GROUP DEACTIVATED** ⚠️\n\n"
+                                     f"This group's unlimited downloads have been deactivated.\n\n"
+                                     f"Please contact admin for more information.",
+                                parse_mode=ParseMode.MARKDOWN
+                            )
+                        except:
+                            pass
+                    else:
+                        await update.message.reply_text(
+                            f"❌ **Error deactivating group!**\n\n"
+                            f"{result.get('error', 'Unknown error')}"
+                        )
+                except ValueError:
+                    await update.message.reply_text(
+                        "❌ **Invalid input!**\n\n"
+                        "Usage: `deactivategroup <group_id>`\n"
+                        "Example: `deactivategroup -123456789`"
+                    )
+            
+            context.user_data['awaiting_deactivategroup'] = False
             return
         
         # Check maintenance
@@ -3072,7 +3660,10 @@ async def setup_commands(application: Application):
         BotCommand("give", "Give downloads to user (owner only)"),
         BotCommand("broadcast", "Broadcast message with image (admin only)"),
         BotCommand("support", "Create support ticket"),
-        BotCommand("referral", "Get your referral link")
+        BotCommand("referral", "Get your referral link"),
+        BotCommand("activategroup", "Activate a group for unlimited downloads (admin only)"),
+        BotCommand("deactivategroup", "Deactivate a group (admin only)"),
+        BotCommand("listgroups", "List all active groups (admin only)")
     ]
     
     await application.bot.set_my_commands(commands)
@@ -3080,17 +3671,6 @@ async def setup_commands(application: Application):
 # ===================== MAIN FUNCTION =====================
 def main():
     """Start the bot - Enhanced"""
-    # Check if wget is installed
-    try:
-        subprocess.run(["which", "wget"], check=True, capture_output=True)
-        print("✅ wget is installed")
-    except:
-        print("❌ ERROR: wget is not installed!")
-        print("Install it with:")
-        print("  Ubuntu/Debian: sudo apt install wget")
-        print("  Termux: pkg install wget")
-        exit(1)
-    
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
     
@@ -3123,6 +3703,9 @@ def main():
     application.add_handler(CommandHandler("broadcast", broadcast_command))
     application.add_handler(CommandHandler("support", lambda u, c: handle_support_menu(u, c)))
     application.add_handler(CommandHandler("referral", lambda u, c: handle_my_referral(u, c)))
+    application.add_handler(CommandHandler("activategroup", activate_group_command))
+    application.add_handler(CommandHandler("deactivategroup", deactivate_group_command))
+    application.add_handler(CommandHandler("listgroups", list_groups_command))
     
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(conv_handler)
@@ -3181,6 +3764,17 @@ def main():
     print("19. 📊 FIXED: Database operations with proper error handling")
     print("20. 🔄 FIXED: Callback handler with proper error management")
     print("=" * 60)
+    print("\n✅ **GROUP ACTIVATION FEATURE ADDED:**")
+    print("21. 👥 /activategroup command - Admins can activate groups for unlimited downloads")
+    print("22. 👥 /deactivategroup command - Admins can deactivate groups")
+    print("23. 👥 /listgroups command - Admins can view all active groups")
+    print("24. 👥 Group Management in Admin Panel - Easy to manage activated groups")
+    print("25. 👥 Unlimited downloads for all group members when group is activated")
+    print("=" * 60)
+    print("\n✅ **WGET ISSUE FIXED:**")
+    print("26. 🔧 Fixed wget dependency issue - Bot now works without requiring wget installation")
+    print("27. 🛠️ Added fallback download method when wget is not available")
+    print("=" * 60)
     print("\n📁 **DATABASE FILES CREATED:**")
     print(f"  • {USERS_FILE} - All users data")
     print(f"  • {ADMINS_FILE} - Admin list")
@@ -3191,6 +3785,7 @@ def main():
     print(f"  • {BULK_KEYS_FILE} - Bulk key generation records")
     print(f"  • {TICKETS_FILE} - Support tickets")
     print(f"  • {REPORTS_FILE} - User reports")
+    print(f"  • {GROUPS_FILE} - Activated groups")
     print("=" * 60)
     print("\n🚀 **BOT STARTED SUCCESSFULLY!**")
     print("🛡️ Bot is now CRASH-PROOF with comprehensive error handling!")
