@@ -7,6 +7,8 @@ Combined Features:
 - Advanced UI/UX with working buttons
 - Bulk key generation system
 - Group activation feature (NEW)
+- Welcome bonus system (NEW)
+- Admin panel for bonus/points management (NEW)
 - Owner: @synaxnetwork
 """
 
@@ -33,7 +35,7 @@ from telegram.constants import ParseMode, ChatAction
 from telegram.error import TelegramError, BadRequest
 
 # ===================== CONFIGURATION =====================
-BOT_TOKEN = "8538798053:AAH5FIriSDivlPcd-NwuCCz9iOc6RiwHVR0"
+BOT_TOKEN = "8538798053:AAG2D_OJSeqaqHf655DnsB4bzQcz6SgJsCY"
 
 # OWNER DETAILS - SYNAX Network
 OWNER_ID = 7998441787
@@ -69,6 +71,7 @@ BULK_KEYS_FILE = "bulk_keys.json"
 TICKETS_FILE = "support_tickets.json"
 REPORTS_FILE = "user_reports.json"
 GROUPS_FILE = "activated_groups.json"
+BONUS_SETTINGS_FILE = "bonus_settings.json"
 
 # ===================== LOGGING =====================
 logging.basicConfig(
@@ -110,6 +113,7 @@ bulk_keys_db = load_json(BULK_KEYS_FILE)
 tickets_db = load_json(TICKETS_FILE)
 reports_db = load_json(REPORTS_FILE)
 groups_db = load_json(GROUPS_FILE)
+bonus_settings_db = load_json(BONUS_SETTINGS_FILE)
 
 # Default settings - SYNAX System
 if "maintenance" not in settings_db:
@@ -132,10 +136,17 @@ if "report_system" not in settings_db:
     settings_db["report_system"] = True
 if "referral_system" not in settings_db:
     settings_db["referral_system"] = True
-if "referral_reward" not in settings_db:
-    settings_db["referral_reward"] = 5  # 5 downloads for each referral
+
+# Default bonus settings - NEW
+if "welcome_bonus" not in bonus_settings_db:
+    bonus_settings_db["welcome_bonus"] = 5  # Default 5 downloads for new users
+if "referral_bonus" not in bonus_settings_db:
+    bonus_settings_db["referral_bonus"] = 5  # Default 5 downloads per referral
+if "manual_bonus_enabled" not in bonus_settings_db:
+    bonus_settings_db["manual_bonus_enabled"] = True  # Allow manual bonus distribution
 
 save_json(SETTINGS_FILE, settings_db)
+save_json(BONUS_SETTINGS_FILE, bonus_settings_db)
 
 # ===================== FEATURE 1: KEY GENERATION (SYNAX) =====================
 def generate_key(plan: str = "premium", days: int = 30, downloads: int = 100) -> str:
@@ -283,9 +294,9 @@ def approve_payment(payment_id: str, admin_id: int) -> Dict:
             
             # Add downloads based on plan
             plan_downloads = {
-                "basic": 10,
-                "pro": 29,
-                "premium": 100
+                "basic": 5,
+                "pro": 40,
+                "premium": 150
             }
             
             downloads = plan_downloads.get(payment_data["plan"], 0)
@@ -430,7 +441,7 @@ def process_referral(referrer_id: int, referred_id: int) -> Dict:
         
         # Give reward to referrer
         if referrer_id_str in users_db:
-            reward = settings_db.get("referral_reward", 5)
+            reward = bonus_settings_db.get("referral_bonus", 5)  # Use settings value
             users_db[referrer_id_str]["downloads_left"] += reward
             users_db[referrer_id_str]["referral_count"] = users_db[referrer_id_str].get("referral_count", 0) + 1
             
@@ -540,6 +551,59 @@ def get_active_groups() -> List[Dict]:
         logger.error(f"Error getting active groups: {e}")
         return []
 
+# ===================== BONUS SYSTEM (NEW) =====================
+def give_bonus(user_id: int, bonus_type: str, amount: int, reason: str = "", admin_id: int = None) -> Dict:
+    """Give bonus to user - NEW"""
+    try:
+        user_id_str = str(user_id)
+        
+        if user_id_str not in users_db:
+            users_db[user_id_str] = create_user(user_id)
+        
+        # Add bonus to user
+        if bonus_type == "downloads":
+            users_db[user_id_str]["downloads_left"] += amount
+        elif bonus_type == "points":
+            users_db[user_id_str]["points"] = users_db[user_id_str].get("points", 0) + amount
+        
+        # Create bonus record
+        bonus_id = f"BONUS-{random.randint(10000, 99999)}"
+        bonus_data = {
+            "bonus_id": bonus_id,
+            "user_id": user_id,
+            "bonus_type": bonus_type,
+            "amount": amount,
+            "reason": reason,
+            "given_by": admin_id,
+            "given_at": datetime.now().isoformat()
+        }
+        
+        # Initialize bonus history if not exists
+        if "bonus_history" not in users_db[user_id_str]:
+            users_db[user_id_str]["bonus_history"] = []
+        
+        users_db[user_id_str]["bonus_history"].append(bonus_data)
+        
+        save_json(USERS_FILE, users_db)
+        
+        return {"success": True, "data": bonus_data}
+    except Exception as e:
+        logger.error(f"Error giving bonus: {e}")
+        return {"success": False, "error": "Server error"}
+
+def set_bonus_settings(setting: str, value: int, admin_id: int) -> Dict:
+    """Set bonus settings - NEW"""
+    try:
+        if setting in ["welcome_bonus", "referral_bonus"]:
+            bonus_settings_db[setting] = value
+            save_json(BONUS_SETTINGS_FILE, bonus_settings_db)
+            
+            return {"success": True, "setting": setting, "value": value}
+        return {"success": False, "error": "Invalid setting"}
+    except Exception as e:
+        logger.error(f"Error setting bonus: {e}")
+        return {"success": False, "error": "Server error"}
+
 # ===================== HELPER FUNCTIONS (SYNAX) =====================
 def is_admin(user_id: int) -> bool:
     """Check if user is admin - SYNAX System"""
@@ -563,7 +627,9 @@ def create_user(user_id: int, username: str = "", first_name: str = "") -> Dict:
         "is_banned": False,
         "warnings": 0,
         "messages_sent": 0,
-        "referral_count": 0
+        "referral_count": 0,
+        "points": 0,  # NEW: Points system
+        "welcome_bonus_given": False  # NEW: Track if welcome bonus was given
     }
 
 def get_user_stats(user_id: int) -> Dict:
@@ -659,7 +725,7 @@ def unban_user(user_id: int) -> bool:
         logger.error(f"Error unbanning user: {e}")
         return False
 
-# ===================== URL TO ZIP FEATURE (From Second Bot) =====================
+# ===================== URL TO ZIP FEATURE (From Second Bot) - FIXED =====================
 def clean_url(url):
     """Clean and validate URL - From Second Bot"""
     try:
@@ -673,28 +739,177 @@ def clean_url(url):
         logger.error(f"Error cleaning URL: {e}")
         return url
 
+def is_wget_available():
+    """Check if wget is available"""
+    try:
+        subprocess.run(["wget", "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+def download_with_requests(url, temp_dir, download_type="full"):
+    """Download website using requests library as fallback"""
+    try:
+        # Get the main page
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+        response.raise_for_status()
+        
+        # Save the main HTML file
+        domain = url.replace("https://", "").replace("http://", "").split("/")[0]
+        html_file = os.path.join(temp_dir, f"{domain}.html")
+        
+        with open(html_file, 'w', encoding='utf-8') as f:
+            f.write(response.text)
+        
+        # For partial download, we'll just save the main page
+        if download_type == "partial":
+            return 1
+        
+        # For full download, try to download some common assets
+        file_count = 1
+        
+        # Create directories for assets
+        css_dir = os.path.join(temp_dir, "css")
+        js_dir = os.path.join(temp_dir, "js")
+        img_dir = os.path.join(temp_dir, "images")
+        
+        os.makedirs(css_dir, exist_ok=True)
+        os.makedirs(js_dir, exist_ok=True)
+        os.makedirs(img_dir, exist_ok=True)
+        
+        # Extract and download CSS files
+        css_pattern = r'<link[^>]*href=["\']([^"\']*\.css)["\'][^>]*>'
+        css_matches = re.findall(css_pattern, response.text)
+        
+        for css_url in css_matches:
+            if css_url.startswith('//'):
+                css_url = 'https:' + css_url
+            elif css_url.startswith('/'):
+                css_url = f"https://{domain}{css_url}"
+            elif not css_url.startswith(('http://', 'https://')):
+                css_url = f"{url}/{css_url}"
+            
+            try:
+                css_response = requests.get(css_url, headers={"User-Agent": "Mozilla/5.0"})
+                css_response.raise_for_status()
+                
+                css_filename = os.path.basename(css_url)
+                if not css_filename:
+                    css_filename = f"style_{file_count}.css"
+                
+                css_file = os.path.join(css_dir, css_filename)
+                with open(css_file, 'w', encoding='utf-8') as f:
+                    f.write(css_response.text)
+                
+                file_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to download CSS {css_url}: {e}")
+        
+        # Extract and download JS files
+        js_pattern = r'<script[^>]*src=["\']([^"\']*\.js)["\'][^>]*>'
+        js_matches = re.findall(js_pattern, response.text)
+        
+        for js_url in js_matches:
+            if js_url.startswith('//'):
+                js_url = 'https:' + js_url
+            elif js_url.startswith('/'):
+                js_url = f"https://{domain}{js_url}"
+            elif not js_url.startswith(('http://', 'https://')):
+                js_url = f"{url}/{js_url}"
+            
+            try:
+                js_response = requests.get(js_url, headers={"User-Agent": "Mozilla/5.0"})
+                js_response.raise_for_status()
+                
+                js_filename = os.path.basename(js_url)
+                if not js_filename:
+                    js_filename = f"script_{file_count}.js"
+                
+                js_file = os.path.join(js_dir, js_filename)
+                with open(js_file, 'w', encoding='utf-8') as f:
+                    f.write(js_response.text)
+                
+                file_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to download JS {js_url}: {e}")
+        
+        # Extract and download images (limited to avoid too many files)
+        img_pattern = r'<img[^>]*src=["\']([^"\']*\.(?:jpg|jpeg|png|gif|webp))["\'][^>]*>'
+        img_matches = re.findall(img_pattern, response.text)
+        
+        # Limit to first 10 images to avoid too many files
+        for img_url in img_matches[:10]:
+            if img_url.startswith('//'):
+                img_url = 'https:' + img_url
+            elif img_url.startswith('/'):
+                img_url = f"https://{domain}{img_url}"
+            elif not img_url.startswith(('http://', 'https://')):
+                img_url = f"{url}/{img_url}"
+            
+            try:
+                img_response = requests.get(img_url, headers={"User-Agent": "Mozilla/5.0"})
+                img_response.raise_for_status()
+                
+                img_filename = os.path.basename(img_url)
+                if not img_filename:
+                    img_filename = f"image_{file_count}.jpg"
+                
+                img_file = os.path.join(img_dir, img_filename)
+                with open(img_file, 'wb') as f:
+                    f.write(img_response.content)
+                
+                file_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to download image {img_url}: {e}")
+        
+        return file_count
+    except Exception as e:
+        logger.error(f"Error downloading with requests: {e}")
+        raise e
+
 def create_direct_zip(url, download_type="full"):
-    """Download and create zip directly - From Second Bot"""
+    """Download and create zip directly - From Second Bot - FIXED"""
     temp_dir = None
     try:
         # Create temporary directory
         temp_dir = tempfile.mkdtemp()
         
-        if download_type == "full":
-            cmd = f"""wget --mirror --convert-links --adjust-extension --page-requisites \
-                    --no-parent --no-check-certificate -e robots=off \
-                    --user-agent="Mozilla/5.0" --quiet -P "{temp_dir}" "{url}" """
+        # Try wget first if available
+        if is_wget_available():
+            if download_type == "full":
+                cmd = [
+                    "wget", "--mirror", "--convert-links", "--adjust-extension", 
+                    "--page-requisites", "--no-parent", "--no-check-certificate", 
+                    "-e", "robots=off", "--user-agent=Mozilla/5.0", "--quiet", 
+                    "-P", temp_dir, url
+                ]
+            else:
+                cmd = [
+                    "wget", "-r", "-l", "2", "-k", "-p", "-E", "--no-check-certificate",
+                    "-e", "robots=off", "--quiet", "-P", temp_dir, url
+                ]
+            
+            # Execute download with subprocess
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = process.communicate()
+            
+            # Check if wget succeeded
+            if process.returncode != 0:
+                logger.error(f"wget failed with return code {process.returncode}: {stderr.decode()}")
+                # Fall back to requests
+                file_count = download_with_requests(url, temp_dir, download_type)
+            else:
+                # Count files downloaded by wget
+                file_count = 0
+                for root, dirs, files in os.walk(temp_dir):
+                    file_count += len(files)
         else:
-            cmd = f"""wget -r -l 2 -k -p -E --no-check-certificate \
-                    -e robots=off --quiet -P "{temp_dir}" "{url}" """
-        
-        # Execute download
-        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = process.communicate()
+            # Use requests as fallback
+            logger.info("wget not available, using requests library")
+            file_count = download_with_requests(url, temp_dir, download_type)
         
         # Create zip in memory
         zip_buffer = io.BytesIO()
-        file_count = 0
         
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
             for root, dirs, files in os.walk(temp_dir):
@@ -706,8 +921,8 @@ def create_direct_zip(url, download_type="full"):
                         
                         arcname = os.path.relpath(file_path, temp_dir)
                         zipf.writestr(arcname, file_data)
-                        file_count += 1
-                    except:
+                    except Exception as e:
+                        logger.warning(f"Failed to add {file_path} to zip: {e}")
                         continue
         
         zip_buffer.seek(0)
@@ -726,35 +941,35 @@ def create_direct_zip(url, download_type="full"):
 def get_main_menu() -> InlineKeyboardMarkup:
     """Main menu buttons - SYNAX Style (Enhanced)"""
     keyboard = [
-        [InlineKeyboardButton("⬇️ DOWNLOAD", callback_data="download_menu"),
-         InlineKeyboardButton("💰 BUY", callback_data="buy_menu")],
-        [InlineKeyboardButton("📊 STATS", callback_data="my_stats"),
-         InlineKeyboardButton("🔑 ACTIVATE KEY", callback_data="activate_key_menu")],
-        [InlineKeyboardButton("📜 HISTORY", callback_data="download_history"),
-         InlineKeyboardButton("🆘 HELP", callback_data="help")],
-        [InlineKeyboardButton("🎫 SUPPORT", callback_data="support_menu"),
-         InlineKeyboardButton("👥 REFERRAL", callback_data="referral_menu")],
-        [InlineKeyboardButton("📢 JOIN CHANNEL", url=PROMOTION_CHANNEL),
-         InlineKeyboardButton("👥 JOIN GROUP", url=PROMOTION_GROUPS[0])],
-        [InlineKeyboardButton("👑 OWNER", callback_data="owner_info")]
+        [InlineKeyboardButton("⬇️ 𝘿𝙤𝙬𝙣𝙡𝙤𝙖𝙙", callback_data="download_menu"),
+         InlineKeyboardButton("💰 𝘽𝙪𝙮", callback_data="buy_menu")],
+        [InlineKeyboardButton("📊 𝙎𝙩𝙖𝙩𝙨", callback_data="my_stats"),
+         InlineKeyboardButton("🔑 𝘼𝙘𝙩𝙞𝙫𝙖𝙩𝙚 𝙆𝙀𝙔", callback_data="activate_key_menu")],
+        [InlineKeyboardButton("📜 𝙃𝙞𝙨𝙩𝙤𝙧𝙮", callback_data="download_history"),
+         InlineKeyboardButton("🆘 𝙃𝙚𝙡𝙥", callback_data="help")],
+        [InlineKeyboardButton("🎫 𝙎𝙪𝙥𝙥𝙤𝙧𝙩", callback_data="support_menu"),
+         InlineKeyboardButton("👥 𝙍𝙚𝙛𝙚𝙧𝙧𝙖𝙡", callback_data="referral_menu")],
+        [InlineKeyboardButton("📢 𝙐𝙥𝙙𝙖𝙩𝙚", url=PROMOTION_CHANNEL),
+         InlineKeyboardButton("👥 𝙂𝙧𝙤𝙪𝙥", url=PROMOTION_GROUPS[0])],
+        [InlineKeyboardButton("👑 𝙊𝙬𝙣𝙚𝙧", callback_data="owner_info")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def get_download_menu() -> InlineKeyboardMarkup:
     """Download menu - SYNAX Style (Enhanced)"""
     keyboard = [
-        [InlineKeyboardButton("🌐 FROM URL", callback_data="url_download"),
-         InlineKeyboardButton("⚡ QUICK DOWNLOAD", callback_data="quick_dl")],
-        [InlineKeyboardButton("🔙 BACK", callback_data="main_menu")]
+        [InlineKeyboardButton("🌐 𝙁𝙧𝙤𝙢  𝙐𝙧𝙡", callback_data="url_download"),
+         InlineKeyboardButton("⚡ 𝙌𝙪𝙞𝙘𝙠 𝘿𝙤𝙬𝙣𝙡𝙤𝙖𝙙", callback_data="quick_dl")],
+        [InlineKeyboardButton("🔙 𝘽𝙖𝙘𝙠", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def get_buy_menu() -> InlineKeyboardMarkup:
     """Buy menu with QR Code - Enhanced"""
     keyboard = [
-        [InlineKeyboardButton("₹39 → 10 DOWNLOADS", callback_data="buy_basic")],
-        [InlineKeyboardButton("₹99 → 29 DOWNLOADS", callback_data="buy_pro")],
-        [InlineKeyboardButton("₹199 → 100 DOWNLOADS", callback_data="buy_premium")],
+        [InlineKeyboardButton("₹10 → 5 DOWNLOADS", callback_data="buy_basic")],
+        [InlineKeyboardButton("₹40 → 40 DOWNLOADS", callback_data="buy_pro")],
+        [InlineKeyboardButton("₹100 → 150 DOWNLOADS", callback_data="buy_premium")],
         [InlineKeyboardButton("🔙 BACK", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -762,22 +977,33 @@ def get_buy_menu() -> InlineKeyboardMarkup:
 def get_admin_menu() -> InlineKeyboardMarkup:
     """Admin menu - SYNAX System (Enhanced)"""
     keyboard = [
-        [InlineKeyboardButton("📢 BROADCAST", callback_data="admin_broadcast"),
-         InlineKeyboardButton("👥 USERS", callback_data="admin_all_users")],
-        [InlineKeyboardButton("💳 PAYMENTS", callback_data="admin_payments"),
-         InlineKeyboardButton("🚫 BAN USER", callback_data="admin_ban")],
-        [InlineKeyboardButton("✅ UNBAN", callback_data="admin_unban"),
-         InlineKeyboardButton("⚙️ MAINTENANCE", callback_data="admin_maintenance")],
-        [InlineKeyboardButton("📊 STATS", callback_data="admin_stats"),
-         InlineKeyboardButton("🔧 ADD ADMIN", callback_data="admin_add")],
-        [InlineKeyboardButton("🗑️ REMOVE ADMIN", callback_data="admin_remove"),
-         InlineKeyboardButton("🔑 GEN KEY", callback_data="admin_gen_key")],
-        [InlineKeyboardButton("🔑 BULK KEYS", callback_data="admin_bulk_keys"),
-         InlineKeyboardButton("↩️ REPLY USER", callback_data="admin_reply_user")],
-        [InlineKeyboardButton("🎫 SUPPORT TICKETS", callback_data="admin_tickets"),
-         InlineKeyboardButton("📊 REPORTS", callback_data="admin_reports")],
-        [InlineKeyboardButton("👥 GROUPS", callback_data="admin_groups"),
-         InlineKeyboardButton("🔙 MAIN MENU", callback_data="main_menu")]
+        [InlineKeyboardButton("📢 𝘽𝙧𝙤𝙖𝙙𝙘𝙖𝙨𝙩", callback_data="admin_broadcast"),
+         InlineKeyboardButton("👥 𝙐𝙨𝙚𝙧𝙨", callback_data="admin_all_users")],
+        [InlineKeyboardButton("💳 𝙋𝙖𝙮𝙢𝙚𝙣𝙩𝙨", callback_data="admin_payments"),
+         InlineKeyboardButton("🚫 𝘽𝘼𝙉", callback_data="admin_ban")],
+        [InlineKeyboardButton("✅ 𝙐𝙣𝙗𝙖𝙣", callback_data="admin_unban"),
+         InlineKeyboardButton("⚙️ 𝙈𝙖𝙞𝙣𝙩𝙚𝙣𝙚𝙣𝙘𝙚", callback_data="admin_maintenance")],
+        [InlineKeyboardButton("📊 𝙎𝙩𝙖𝙩𝙨", callback_data="admin_stats"),
+         InlineKeyboardButton("🔧 𝘼𝙙𝙙 𝘼𝙙𝙢𝙞𝙣", callback_data="admin_add")],
+        [InlineKeyboardButton("🗑️ 𝙍𝙚𝙢𝙤𝙫𝙚 𝘼𝙙𝙢𝙞𝙣", callback_data="admin_remove"),
+         InlineKeyboardButton("🔑 𝙂𝙚𝙣 𝙆𝙀𝙔", callback_data="admin_gen_key")],
+        [InlineKeyboardButton("🔑 𝘽𝙪𝙡𝙠 𝙆𝙀𝙔𝙎", callback_data="admin_bulk_keys"),
+         InlineKeyboardButton("↩️ 𝙍𝙚𝙥𝙡𝙮 𝙐𝙨𝙚𝙧", callback_data="admin_reply_user")],
+        [InlineKeyboardButton("🎫 𝙎𝙪𝙥𝙥𝙤𝙧𝙩𝙨 𝙏𝙞𝙘𝙠𝙚𝙩𝙨", callback_data="admin_tickets"),
+         InlineKeyboardButton("📊 𝙍𝙚𝙥𝙤𝙧𝙩𝙨", callback_data="admin_reports")],
+        [InlineKeyboardButton("👥 𝙂𝙧𝙤𝙪𝙥𝙨", callback_data="admin_groups"),
+         InlineKeyboardButton("🎁 𝘽𝙤𝙣𝙪𝙨 𝙎𝙚𝙩𝙩𝙞𝙣𝙜𝙨", callback_data="admin_bonus_settings")],
+        [InlineKeyboardButton("🔙 𝙈𝙖𝙞𝙣 𝙈𝙚𝙣𝙪", callback_data="main_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_bonus_settings_menu() -> InlineKeyboardMarkup:
+    """Bonus settings menu - NEW"""
+    keyboard = [
+        [InlineKeyboardButton("🎁 WELCOME BONUS", callback_data="set_welcome_bonus")],
+        [InlineKeyboardButton("👥 REFERRAL BONUS", callback_data="set_referral_bonus")],
+        [InlineKeyboardButton("🎁 GIVE BONUS", callback_data="give_bonus_form")],
+        [InlineKeyboardButton("🔙 ADMIN MENU", callback_data="admin_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -815,9 +1041,9 @@ def get_payment_approval_keyboard(payment_id: str):
 def get_bulk_key_form() -> InlineKeyboardMarkup:
     """Bulk key generation form - FIXED"""
     keyboard = [
-        [InlineKeyboardButton("🔑 BASIC (10 DL)", callback_data="bulk_form_basic")],
-        [InlineKeyboardButton("🔑 PRO (29 DL)", callback_data="bulk_form_pro")],
-        [InlineKeyboardButton("🔑 PREMIUM (100 DL)", callback_data="bulk_form_premium")],
+        [InlineKeyboardButton("🔑 BASIC (5 DL)", callback_data="bulk_form_basic")],
+        [InlineKeyboardButton("🔑 PRO (40 DL)", callback_data="bulk_form_pro")],
+        [InlineKeyboardButton("🔑 PREMIUM (150 DL)", callback_data="bulk_form_premium")],
         [InlineKeyboardButton("🔙 ADMIN MENU", callback_data="admin_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -884,13 +1110,14 @@ async def show_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
             username = user_data.get('username', 'N/A')
             first_name = user_data.get('first_name', 'N/A')
             downloads = user_data.get('total_downloads', 0)
+            points = user_data.get('points', 0)
             last_active = datetime.fromisoformat(user_data['last_active']).strftime('%d/%m %H:%M')
             status = "🚫" if user_data.get('is_banned', False) else "✅"
             plan = user_data.get('subscription', 'free')
             
             users_text += f"{count}. {status} `{uid_str}`\n"
             users_text += f"   👤 @{username} | {first_name}\n"
-            users_text += f"   📥 {downloads} DL | 📅 {last_active} | 💰 {plan}\n\n"
+            users_text += f"   📥 {downloads} DL | 🏆 {points} Pts | 📅 {last_active} | 💰 {plan}\n\n"
         
         # Create pagination buttons
         keyboard = []
@@ -924,6 +1151,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         update_user_activity(user_id, user.username, user.first_name)
         
+        # Get or create user data
+        user_data = get_user_stats(user_id)
+        is_new_user = user_data.get("joined_date", "") == datetime.now().isoformat().split('T')[0] + "T" + datetime.now().isoformat().split('T')[1]
+        
+        # Give welcome bonus to new users
+        welcome_bonus_given = False
+        if not user_data.get("welcome_bonus_given", False):
+            welcome_bonus = bonus_settings_db.get("welcome_bonus", 5)
+            result = give_bonus(user_id, "downloads", welcome_bonus, "Welcome bonus", OWNER_ID)
+            if result["success"]:
+                welcome_bonus_given = True
+                user_data["welcome_bonus_given"] = True
+                save_json(USERS_FILE, users_db)
+        
         # Check for referral
         if context.args and len(context.args) > 0:
             arg = context.args[0]
@@ -943,8 +1184,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except (ValueError, IndexError):
                     pass
         
-        user_data = get_user_stats(user_id)
-        
         # Check if user is in an activated group
         group_unlimited = False
         if update.message.chat.type in [Chat.GROUP, Chat.SUPERGROUP]:
@@ -959,12 +1198,15 @@ _Professional Website Downloader_
 
 📊 **YOUR STATUS:**
 • Downloads Left: `{'♾️ UNLIMITED' if group_unlimited or is_owner(user_id) else user_data.get('downloads_left', 0)}`
+• Points: `{user_data.get('points', 0)}`
 • Total Downloads: `{user_data.get('total_downloads', 0)}`
 • Account: `{'🚫 BANNED' if user_data.get('is_banned') else '✅ ACTIVE'}`
 
 📢 **JOIN OUR:**
-• Channel: {PROMOTION_CHANNEL}
-• Groups: {', '.join(PROMOTION_GROUPS)}
+• Channel: @synaxnetwork
+• Groups: @synaxchatgroup
+
+{'🎁 **WELCOME BONUS:** You received ' + str(bonus_settings_db.get('welcome_bonus', 5)) + ' downloads as a welcome gift!' if welcome_bonus_given else ''}
 
 👇 **USE BUTTONS BELOW:**
     """
@@ -1000,9 +1242,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 4. Get website as ZIP file
 
 💰 **PRICING:**
-• ₹39 → 10 downloads
-• ₹99 → 29 downloads  
-• ₹199 → 100 downloads
+• ₹10 → 5 downloads
+• ₹40 → 40 downloads  
+• ₹100 → 150 downloads
 
 🔑 **SUBSCRIPTION KEYS:**
 Use /activate <key> to activate subscription
@@ -1014,7 +1256,10 @@ Check your previous downloads in the HISTORY section
 Create support tickets for help with issues
 
 👥 **REFERRAL SYSTEM:**
-Invite friends and earn {settings_db.get('referral_reward', 5)} downloads per referral
+Invite friends and earn {bonus_settings_db.get('referral_bonus', 5)} downloads per referral
+
+🎁 **BONUS SYSTEM:**
+New users get {bonus_settings_db.get('welcome_bonus', 5)} downloads as welcome bonus!
 
 👑 **OWNER:** {OWNER_NAME}
 📞 **SUPPORT:** {OWNER_USERNAME}
@@ -1054,6 +1299,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         today = datetime.now().date()
         banned_count = 0
         total_downloads = 0
+        total_points = 0
         pending_payments = 0
         total_keys = len(keys_db)
         used_keys = sum(1 for k in keys_db.values() if k.get("is_used", False))
@@ -1068,6 +1314,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if u.get('is_banned', False):
                     banned_count += 1
                 total_downloads += u.get('total_downloads', 0)
+                total_points += u.get('points', 0)
             except:
                 continue
         
@@ -1083,6 +1330,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Active Today: `{active_today}`
 • Banned Users: `{banned_count}`
 • Total Downloads: `{total_downloads}`
+• Total Points: `{total_points}`
 • Pending Payments: `{pending_payments}`
 • Subscription Keys: `{total_keys}`
 • Used Keys: `{used_keys}`
@@ -1090,6 +1338,10 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Open Tickets: `{open_tickets}`
 • Active Groups: `{active_groups}`
 • Maintenance: `{'✅ ON' if settings_db.get('maintenance') else '❌ OFF'}`
+
+🎁 **BONUS SETTINGS:**
+• Welcome Bonus: `{bonus_settings_db.get('welcome_bonus', 5)}`
+• Referral Bonus: `{bonus_settings_db.get('referral_bonus', 5)}`
 
 👤 **YOUR ROLE:** {'👑 OWNER' if is_owner(user_id) else '🛡️ ADMIN'}
 
@@ -1147,6 +1399,10 @@ async def show_user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         referral_count = user_data.get('referral_count', 0)
         referral_link = f"https://t.me/{context.bot.username}?start=ref_{user_id}"
         
+        # Get bonus history
+        bonus_history = user_data.get('bonus_history', [])
+        total_bonus = sum(b.get('amount', 0) for b in bonus_history if b.get('bonus_type') == 'downloads')
+        
         stats_text = f"""
 📊 **YOUR STATISTICS** 📊
 
@@ -1161,6 +1417,11 @@ async def show_user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Total Downloads: `{user_data['total_downloads']}`
 • Subscription: `{user_data['subscription'].upper()}`
 • Expires: `{expiry_text}`
+
+🏆 **POINTS & BONUSES:**
+• Points: `{user_data.get('points', 0)}`
+• Total Bonus Received: `{total_bonus}`
+• Welcome Bonus: `{'✅ Received' if user_data.get('welcome_bonus_given') else '❌ Not received'}`
 
 👥 **REFERRAL STATS:**
 • Referrals: `{referral_count}`
@@ -1243,6 +1504,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         referral_count = user_data.get('referral_count', 0)
         referral_link = f"https://t.me/{context.bot.username}?start=ref_{user_id}"
         
+        # Get bonus history
+        bonus_history = user_data.get('bonus_history', [])
+        total_bonus = sum(b.get('amount', 0) for b in bonus_history if b.get('bonus_type') == 'downloads')
+        
         stats_text = f"""
 📊 **YOUR STATISTICS** 📊
 
@@ -1257,6 +1522,11 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Total Downloads: `{user_data['total_downloads']}`
 • Subscription: `{user_data['subscription'].upper()}`
 • Expires: `{expiry_text}`
+
+🏆 **POINTS & BONUSES:**
+• Points: `{user_data.get('points', 0)}`
+• Total Bonus Received: `{total_bonus}`
+• Welcome Bonus: `{'✅ Received' if user_data.get('welcome_bonus_given') else '❌ Not received'}`
 
 👥 **REFERRAL STATS:**
 • Referrals: `{referral_count}`
@@ -1332,11 +1602,11 @@ async def generate_key_command(update: Update, context: ContextTypes.DEFAULT_TYP
             downloads = 100
             
             if plan == "basic":
-                downloads = 10
+                downloads = 5
             elif plan == "pro":
-                downloads = 29
+                downloads = 40
             elif plan == "premium":
-                downloads = 100
+                downloads = 150
             
             key = generate_key(plan, days, downloads)
             if key:
@@ -1841,9 +2111,9 @@ async def handle_bulk_key_form(update: Update, context: ContextTypes.DEFAULT_TYP
         
         plan = query.data.replace("bulk_form_", "")
         plan_details = {
-            "basic": {"downloads": 10, "name": "BASIC"},
-            "pro": {"downloads": 29, "name": "PRO"},
-            "premium": {"downloads": 100, "name": "PREMIUM"}
+            "basic": {"downloads": 5, "name": "BASIC"},
+            "pro": {"downloads": 40, "name": "PRO"},
+            "premium": {"downloads": 150, "name": "PREMIUM"}
         }
         
         if plan in plan_details:
@@ -2139,9 +2409,9 @@ async def handle_generate_key(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         
         keyboard = [
-            [InlineKeyboardButton("🔑 BASIC KEY (10 DL)", callback_data="genkey_basic")],
-            [InlineKeyboardButton("🔑 PRO KEY (29 DL)", callback_data="genkey_pro")],
-            [InlineKeyboardButton("🔑 PREMIUM KEY (100 DL)", callback_data="genkey_premium")],
+            [InlineKeyboardButton("🔑 BASIC KEY (5 DL)", callback_data="genkey_basic")],
+            [InlineKeyboardButton("🔑 PRO KEY (40 DL)", callback_data="genkey_pro")],
+            [InlineKeyboardButton("🔑 PREMIUM KEY (150 DL)", callback_data="genkey_premium")],
             [InlineKeyboardButton("🔙 ADMIN MENU", callback_data="admin_menu")]
         ]
         
@@ -2153,6 +2423,99 @@ async def handle_generate_key(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.error(f"Error handling generate key: {e}")
         await query.answer("❌ Error loading key generator!", show_alert=True)
+
+# ===================== BONUS SETTINGS HANDLERS (NEW) =====================
+async def handle_bonus_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle bonus settings from callback - NEW"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await query.answer("❌ Admin Only!", show_alert=True)
+            return
+        
+        await query.edit_message_text(
+            f"🎁 **BONUS SETTINGS** 🎁\n\n"
+            f"Current Settings:\n"
+            f"• Welcome Bonus: `{bonus_settings_db.get('welcome_bonus', 5)}` downloads\n"
+            f"• Referral Bonus: `{bonus_settings_db.get('referral_bonus', 5)}` downloads\n\n"
+            f"Select an option to modify:",
+            reply_markup=get_bonus_settings_menu(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        logger.error(f"Error handling bonus settings: {e}")
+        await query.answer("❌ Error loading bonus settings!", show_alert=True)
+
+async def handle_set_welcome_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle set welcome bonus from callback - NEW"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await query.answer("❌ Admin Only!", show_alert=True)
+            return
+        
+        await query.edit_message_text(
+            f"🎁 **SET WELCOME BONUS** 🎁\n\n"
+            f"Current: `{bonus_settings_db.get('welcome_bonus', 5)}` downloads\n\n"
+            f"Please reply with:\n"
+            f"`set_welcome_bonus <amount>`\n\n"
+            f"Example: `set_welcome_bonus 10`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        context.user_data['awaiting_welcome_bonus'] = True
+    except Exception as e:
+        logger.error(f"Error handling set welcome bonus: {e}")
+        await query.answer("❌ Error loading form!", show_alert=True)
+
+async def handle_set_referral_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle set referral bonus from callback - NEW"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await query.answer("❌ Admin Only!", show_alert=True)
+            return
+        
+        await query.edit_message_text(
+            f"👥 **SET REFERRAL BONUS** 👥\n\n"
+            f"Current: `{bonus_settings_db.get('referral_bonus', 5)}` downloads\n\n"
+            f"Please reply with:\n"
+            f"`set_referral_bonus <amount>`\n\n"
+            f"Example: `set_referral_bonus 10`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        context.user_data['awaiting_referral_bonus'] = True
+    except Exception as e:
+        logger.error(f"Error handling set referral bonus: {e}")
+        await query.answer("❌ Error loading form!", show_alert=True)
+
+async def handle_give_bonus_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle give bonus form from callback - NEW"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await query.answer("❌ Admin Only!", show_alert=True)
+            return
+        
+        await query.edit_message_text(
+            f"🎁 **GIVE BONUS** 🎁\n\n"
+            f"Please reply with:\n"
+            f"`give_bonus <user_id> <type> <amount> <reason>`\n\n"
+            f"Types: `downloads` or `points`\n\n"
+            f"Example: `give_bonus 1234567890 downloads 10 Special bonus`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        context.user_data['awaiting_give_bonus'] = True
+    except Exception as e:
+        logger.error(f"Error handling give bonus form: {e}")
+        await query.answer("❌ Error loading form!", show_alert=True)
 
 # ===================== GROUP MANAGEMENT HANDLERS =====================
 async def handle_groups_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2654,7 +3017,7 @@ async def handle_referral_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text(
             "👥 **REFERRAL SYSTEM** 👥\n\n"
             "Invite friends and earn downloads!\n\n"
-            f"You get {settings_db.get('referral_reward', 5)} downloads for each friend who joins.",
+            f"You get {bonus_settings_db.get('referral_bonus', 5)} downloads for each friend who joins.",
             reply_markup=get_referral_menu(),
             parse_mode=ParseMode.MARKDOWN
         )
@@ -2677,7 +3040,7 @@ async def handle_my_referral(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 📊 **STATISTICS:**
 • Referrals: `{referral_count}`
-• Reward per referral: `{settings_db.get('referral_reward', 5)} downloads`
+• Reward per referral: `{bonus_settings_db.get('referral_bonus', 5)} downloads`
 
 🔗 **YOUR LINK:**
 `{referral_link}`
@@ -2770,9 +3133,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if plan in ["basic", "pro", "premium"]:
                 downloads = 100
                 if plan == "basic":
-                    downloads = 10
+                    downloads = 5
                 elif plan == "pro":
-                    downloads = 29
+                    downloads = 40
                 
                 key = generate_key(plan, 30, downloads)
                 if key:
@@ -2837,13 +3200,23 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "active_groups":
             return await handle_active_groups(update, context)
         
+        # Bonus settings handlers - NEW
+        elif data == "admin_bonus_settings":
+            return await handle_bonus_settings(update, context)
+        elif data == "set_welcome_bonus":
+            return await handle_set_welcome_bonus(update, context)
+        elif data == "set_referral_bonus":
+            return await handle_set_referral_bonus(update, context)
+        elif data == "give_bonus_form":
+            return await handle_give_bonus_form(update, context)
+        
         # QR Code handlers
         elif data.startswith("qr_"):
             plan = data[3:]
             plan_details = {
-                "basic": {"price": 39, "downloads": 10},
-                "pro": {"price": 99, "downloads": 29},
-                "premium": {"price": 199, "downloads": 100}
+                "basic": {"price": 10, "downloads": 5},
+                "pro": {"price": 40, "downloads": 40},
+                "premium": {"price": 100, "downloads": 150}
             }
             
             if plan in plan_details:
@@ -2879,9 +3252,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("screenshot_"):
             plan = data[11:]
             plan_details = {
-                "basic": {"price": 39},
-                "pro": {"price": 99},
-                "premium": {"price": 199}
+                "basic": {"price": 10},
+                "pro": {"price": 40},
+                "premium": {"price": 100}
             }
             
             if plan in plan_details:
@@ -2910,9 +3283,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "buy_menu": lambda: query.edit_message_text(
                 "💰 **PURCHASE DOWNLOADS** 💰\n\n"
                 "**PLANS:**\n"
-                "• ₹39 → 10 downloads\n"
-                "• ₹99 → 29 downloads\n"
-                "• ₹199 → 100 downloads\n\n"
+                "• ₹10 → 5 downloads\n"
+                "• ₹40 → 40 downloads\n"
+                "• ₹100 → 150 downloads\n\n"
                 "**Select a plan:**",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=get_buy_menu()
@@ -2968,9 +3341,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("buy_"):
             plan = data[4:]
             plans = {
-                "basic": "₹39 → 10 downloads",
-                "pro": "₹99 → 29 downloads",
-                "premium": "₹199 → 100 downloads"
+                "basic": "₹10 → 5 downloads",
+                "pro": "₹40 → 40 downloads",
+                "premium": "₹100 → 150 downloads"
             }
             
             if plan in plans:
@@ -3080,6 +3453,120 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             
             context.user_data['awaiting_key'] = False
+            return
+        
+        # Handle welcome bonus setting
+        if context.user_data.get('awaiting_welcome_bonus') and is_admin(user_id):
+            parts = message_text.strip().split()
+            if len(parts) >= 2 and parts[0].lower() == "set_welcome_bonus":
+                try:
+                    amount = int(parts[1])
+                    if amount < 0:
+                        await update.message.reply_text("❌ **Invalid amount!** Please specify a positive number.")
+                        return
+                    
+                    # Set welcome bonus
+                    result = set_bonus_settings("welcome_bonus", amount, user_id)
+                    
+                    if result["success"]:
+                        await update.message.reply_text(
+                            f"✅ **Welcome bonus updated!**\n\n"
+                            f"New welcome bonus: `{amount}` downloads",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    else:
+                        await update.message.reply_text("❌ Error updating welcome bonus.")
+                except ValueError:
+                    await update.message.reply_text("❌ **Invalid amount!** Please specify a valid number.")
+            
+            context.user_data['awaiting_welcome_bonus'] = False
+            return
+        
+        # Handle referral bonus setting
+        if context.user_data.get('awaiting_referral_bonus') and is_admin(user_id):
+            parts = message_text.strip().split()
+            if len(parts) >= 2 and parts[0].lower() == "set_referral_bonus":
+                try:
+                    amount = int(parts[1])
+                    if amount < 0:
+                        await update.message.reply_text("❌ **Invalid amount!** Please specify a positive number.")
+                        return
+                    
+                    # Set referral bonus
+                    result = set_bonus_settings("referral_bonus", amount, user_id)
+                    
+                    if result["success"]:
+                        await update.message.reply_text(
+                            f"✅ **Referral bonus updated!**\n\n"
+                            f"New referral bonus: `{amount}` downloads",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    else:
+                        await update.message.reply_text("❌ Error updating referral bonus.")
+                except ValueError:
+                    await update.message.reply_text("❌ **Invalid amount!** Please specify a valid number.")
+            
+            context.user_data['awaiting_referral_bonus'] = False
+            return
+        
+        # Handle give bonus
+        if context.user_data.get('awaiting_give_bonus') and is_admin(user_id):
+            parts = message_text.strip().split()
+            if len(parts) >= 4 and parts[0].lower() == "give_bonus":
+                try:
+                    target_user_id = int(parts[1])
+                    bonus_type = parts[2].lower()
+                    amount = int(parts[3])
+                    reason = " ".join(parts[4:]) if len(parts) > 4 else "Admin bonus"
+                    
+                    if bonus_type not in ["downloads", "points"]:
+                        await update.message.reply_text("❌ **Invalid bonus type!** Please use 'downloads' or 'points'.")
+                        return
+                    
+                    if amount <= 0:
+                        await update.message.reply_text("❌ **Invalid amount!** Please specify a positive number.")
+                        return
+                    
+                    # Give bonus
+                    result = give_bonus(target_user_id, bonus_type, amount, reason, user_id)
+                    
+                    if result["success"]:
+                        # Get user info
+                        target_user_data = users_db.get(str(target_user_id), {})
+                        username = target_user_data.get('username', 'N/A')
+                        first_name = target_user_data.get('first_name', 'N/A')
+                        
+                        await update.message.reply_text(
+                            f"✅ **Bonus Given!**\n\n"
+                            f"User: @{username} | {first_name} (`{target_user_id}`)\n"
+                            f"Type: {bonus_type}\n"
+                            f"Amount: {amount}\n"
+                            f"Reason: {reason}",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                        
+                        # Notify user
+                        try:
+                            await context.bot.send_message(
+                                chat_id=target_user_id,
+                                text=f"🎁 **BONUS RECEIVED!** 🎁\n\n"
+                                     f"You received {amount} {bonus_type} from admin!\n\n"
+                                     f"Reason: {reason}\n\n"
+                                     f"Thank you for using SYNAX Bot!",
+                                parse_mode=ParseMode.MARKDOWN
+                            )
+                        except Exception as e:
+                            logger.warning(f"Could not notify user {target_user_id}: {e}")
+                    else:
+                        await update.message.reply_text("❌ Error giving bonus.")
+                except ValueError:
+                    await update.message.reply_text(
+                        "❌ **Invalid format!**\n\n"
+                        "Usage: `give_bonus <user_id> <type> <amount> <reason>`\n"
+                        "Example: `give_bonus 1234567890 downloads 10 Special bonus`"
+                    )
+            
+            context.user_data['awaiting_give_bonus'] = False
             return
         
         # Handle group activation command
@@ -3524,6 +4011,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📛 Name: {update.effective_user.first_name}
 📊 Total Messages: {user_data.get('messages_sent', 0)}
 📥 Downloads: {user_data.get('total_downloads', 0)}
+🏆 Points: {user_data.get('points', 0)}
 💰 Balance: {user_data.get('downloads_left', 0)}
 
 💬 Message:
@@ -3663,7 +4151,10 @@ async def setup_commands(application: Application):
         BotCommand("referral", "Get your referral link"),
         BotCommand("activategroup", "Activate a group for unlimited downloads (admin only)"),
         BotCommand("deactivategroup", "Deactivate a group (admin only)"),
-        BotCommand("listgroups", "List all active groups (admin only)")
+        BotCommand("listgroups", "List all active groups (admin only)"),
+        BotCommand("setwelcomebonus", "Set welcome bonus (admin only)"),
+        BotCommand("setreferralbonus", "Set referral bonus (admin only)"),
+        BotCommand("givebonus", "Give bonus to user (admin only)")
     ]
     
     await application.bot.set_my_commands(commands)
@@ -3671,6 +4162,16 @@ async def setup_commands(application: Application):
 # ===================== MAIN FUNCTION =====================
 def main():
     """Start the bot - Enhanced"""
+    # Check if wget is installed
+    try:
+        subprocess.run(["which", "wget"], check=True, capture_output=True)
+        print("✅ wget is installed")
+    except:
+        print("⚠️ WARNING: wget is not installed! Using requests library as fallback.")
+        print("For better performance, install wget with:")
+        print("  Ubuntu/Debian: sudo apt install wget")
+        print("  Termux: pkg install wget")
+    
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
     
@@ -3706,6 +4207,11 @@ def main():
     application.add_handler(CommandHandler("activategroup", activate_group_command))
     application.add_handler(CommandHandler("deactivategroup", deactivate_group_command))
     application.add_handler(CommandHandler("listgroups", list_groups_command))
+    
+    # NEW: Bonus commands
+    application.add_handler(CommandHandler("setwelcomebonus", lambda u, c: handle_set_welcome_bonus(u, c)))
+    application.add_handler(CommandHandler("setreferralbonus", lambda u, c: handle_set_referral_bonus(u, c)))
+    application.add_handler(CommandHandler("givebonus", lambda u, c: handle_give_bonus_form(u, c)))
     
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(conv_handler)
@@ -3774,6 +4280,16 @@ def main():
     print("\n✅ **WGET ISSUE FIXED:**")
     print("26. 🔧 Fixed wget dependency issue - Bot now works without requiring wget installation")
     print("27. 🛠️ Added fallback download method when wget is not available")
+    print("28. 🌐 Added requests library as fallback for downloading websites")
+    print("29. 📊 Enhanced error handling for download failures")
+    print("=" * 60)
+    print("\n✅ **BONUS SYSTEM ADDED:**")
+    print("30. 🎁 Welcome Bonus - New users automatically receive bonus downloads")
+    print("31. 🎁 Admin Panel for Bonus Settings - Admins can configure bonus amounts")
+    print("32. 🎁 Manual Bonus Distribution - Admins can give bonus downloads/points to users")
+    print("33. 🎁 Points System - Users can earn and accumulate points")
+    print("34. 🎁 Bonus History - Track all bonuses given to users")
+    print("35. 🎁 Configurable Referral Bonus - Admins can set referral reward amount")
     print("=" * 60)
     print("\n📁 **DATABASE FILES CREATED:**")
     print(f"  • {USERS_FILE} - All users data")
@@ -3786,9 +4302,12 @@ def main():
     print(f"  • {TICKETS_FILE} - Support tickets")
     print(f"  • {REPORTS_FILE} - User reports")
     print(f"  • {GROUPS_FILE} - Activated groups")
+    print(f"  • {BONUS_SETTINGS_FILE} - Bonus settings")
     print("=" * 60)
     print("\n🚀 **BOT STARTED SUCCESSFULLY!**")
     print("🛡️ Bot is now CRASH-PROOF with comprehensive error handling!")
+    print("🔧 Bot now works with or without wget installed!")
+    print("🎁 Bonus system is now active with welcome bonuses for new users!")
     print("=" * 60)
     
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
