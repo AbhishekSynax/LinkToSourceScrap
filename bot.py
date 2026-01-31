@@ -41,7 +41,7 @@ from telegram.constants import ParseMode, ChatAction
 from telegram.error import TelegramError, BadRequest, RetryAfter, TimedOut
 
 # ===================== CONFIGURATION =====================
-BOT_TOKEN = "6732347837:AAHedQeuV7Y0Q8KwyV3a8ZMweoSf_Sd_0W8"
+BOT_TOKEN = "8538798053:AAEcMlAyA8KVkGg8bbtSOtPR77LK9rT7p18"
 
 # OWNER DETAILS - SYNAX Network
 OWNER_ID = 7998441787
