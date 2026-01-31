@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-ULTIMATE WEBSITE DOWNLOADER BOT - SYNAX EDITION (Crash-Proof Version)
+ULTIMATE WEBSITE DOWNLOADER BOT - SYNAX EDITION (Enhanced with Gift Key System and Advanced URL Detection)
 Combined Features:
 - SYNAX Bot's ALL management features
 - Clean URL-to-ZIP from second bot
+- Gift Key System from Z4X bot
+- Advanced URL Detection from Z4X bot
+- Enhanced Download System from Z4X bot
 - Advanced UI/UX with working buttons
 - Bulk key generation system
 - Group activation feature
@@ -30,6 +33,7 @@ from typing import Dict, List, Optional
 import re
 import signal
 import sys
+from urllib.parse import urlparse
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, Document, Chat
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters, ConversationHandler
@@ -37,7 +41,7 @@ from telegram.constants import ParseMode, ChatAction
 from telegram.error import TelegramError, BadRequest, RetryAfter, TimedOut
 
 # ===================== CONFIGURATION =====================
-BOT_TOKEN = "8538798053:AAG2D_OJSeqaqHf655DnsB4bzQcz6SgJsCY"
+BOT_TOKEN = "6732347837:AAHedQeuV7Y0Q8KwyV3a8ZMweoSf_Sd_0W8"
 
 # OWNER DETAILS - SYNAX Network
 OWNER_ID = 7998441787
@@ -74,6 +78,7 @@ TICKETS_FILE = "support_tickets.json"
 REPORTS_FILE = "user_reports.json"
 GROUPS_FILE = "activated_groups.json"
 BONUS_SETTINGS_FILE = "bonus_settings.json"
+GIFT_KEYS_FILE = "gift_keys.json"  # NEW: Gift keys database
 
 # ===================== LOGGING =====================
 logging.basicConfig(
@@ -81,6 +86,245 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# ===================== ADVANCED URL DETECTION SYSTEM (FROM Z4X BOT) =====================
+class URLDetector:
+    """Enhanced URL detection for all types of links"""
+    
+    # Common TLDs
+    TOP_LEVEL_DOMAINS = [
+        '.com', '.org', '.net', '.edu', '.gov', '.mil', '.int',
+        '.in', '.co.in', '.org.in', '.net.in', '.info', '.biz',
+        '.io', '.ai', '.co', '.me', '.tv', '.app', '.dev', '.tech',
+        '.online', '.site', '.website', '.store', '.shop', '.blog',
+        '.online', '.xyz', '.club', '.fun', '.top', '.space'
+    ]
+    
+    # Special domains that don't follow usual patterns
+    SPECIAL_DOMAINS = [
+        'github.io', 'gitlab.io', 'netlify.app', 'vercel.app',
+        'herokuapp.com', 'replit.dev', 'glitch.me', 'firebaseapp.com',
+        'web.app', 'pages.dev', 'cloudflare.app', 'aws.amazon.com',
+        'azurewebsites.net', 'google.com', 'youtube.com', 'facebook.com',
+        'twitter.com', 'instagram.com', 'linkedin.com', 'whatsapp.com',
+        'telegram.org', 'discord.com', 'reddit.com', 'medium.com',
+        'wikipedia.org', 'stackoverflow.com', 'github.com', 'gitlab.com',
+        'bitbucket.org'
+    ]
+    
+    @staticmethod
+    def extract_urls(text: str) -> List[str]:
+        """Extract all URLs from text"""
+        urls = []
+        
+        # Common URL patterns
+        patterns = [
+            # Standard URLs
+            r'https?://[^\s<>"\']+[^\s<>"\',.]',
+            # www URLs
+            r'www\.[^\s<>"\']+\.[^\s<>"\']+[^\s<>"\',.]',
+            # Domain patterns
+            r'[a-zA-Z0-9][a-zA-Z0-9-]*\.[a-zA-Z]{2,}(?:\.[a-zA-Z]{2,})?(?:/[^\s<>"\']*)?',
+            # IP addresses
+            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?(?:/[^\s<>"\']*)?',
+            # Localhost
+            r'localhost(?::\d+)?(?:/[^\s<>"\']*)?',
+            # File paths that look like URLs
+            r'/[^\s<>"\']+\.[a-zA-Z]{2,4}(?:/[^\s<>"\']*)*'
+        ]
+        
+        for pattern in patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                url = match.group(0)
+                if URLDetector.validate_url(url):
+                    urls.append(url)
+        
+        return urls
+    
+    @staticmethod
+    def validate_url(url: str) -> bool:
+        """Validate if string is a valid URL"""
+        # Clean the URL first
+        url = url.strip()
+        
+        # Check for common invalid patterns
+        if url.endswith(('.', ',', ';', ':', '!', '?')):
+            url = url[:-1]
+        
+        # Check if it's already a proper URL
+        if url.startswith(('http://', 'https://')):
+            try:
+                result = urlparse(url)
+                return all([result.scheme, result.netloc])
+            except:
+                return False
+        
+        # Check for www URLs
+        if url.startswith('www.'):
+            parts = url.split('.')
+            if len(parts) >= 3:
+                return True
+        
+        # Check for domain patterns
+        if '.' in url:
+            # Check for TLDs
+            for tld in URLDetector.TOP_LEVEL_DOMAINS:
+                if url.endswith(tld) or f'{tld}/' in url:
+                    return True
+            
+            # Check for special domains
+            for domain in URLDetector.SPECIAL_DOMAINS:
+                if domain in url:
+                    return True
+            
+            # Generic domain check
+            parts = url.split('.')
+            if len(parts) >= 2:
+                # Check if last part looks like a TLD
+                last_part = parts[-1].lower()
+                if len(last_part) >= 2 and last_part.isalpha():
+                    return True
+        
+        return False
+    
+    @staticmethod
+    def clean_and_format_url(url: str) -> str:
+        """Clean and format URL to proper http/https format"""
+        url = url.strip()
+        
+        # Remove trailing punctuation
+        while url and url[-1] in '.,;:!?':
+            url = url[:-1]
+        
+        # Remove angle brackets if present
+        if url.startswith('<') and url.endswith('>'):
+            url = url[1:-1]
+        
+        # Check if already has protocol
+        if url.startswith(('http://', 'https://')):
+            return url
+        
+        # Add protocol for www
+        if url.startswith('www.'):
+            return 'https://' + url
+        
+        # Check for GitHub pages and similar
+        if any(domain in url for domain in ['github.io', 'gitlab.io', 'netlify.app', 'vercel.app']):
+            if not url.startswith('http'):
+                return 'https://' + url
+        
+        # For other domains, add https://
+        if '.' in url and not url.startswith('/'):
+            # Check if it looks like a domain
+            parts = url.split('.')
+            if len(parts) >= 2:
+                last_part = parts[-1].split('/')[0]
+                if len(last_part) >= 2 and last_part.isalpha():
+                    return 'https://' + url
+        
+        return url
+    
+    @staticmethod
+    def extract_main_url(text: str) -> str:
+        """Extract the most likely URL from text"""
+        urls = URLDetector.extract_urls(text)
+        
+        if not urls:
+            return ""
+        
+        # Prefer URLs with http/https
+        for url in urls:
+            if url.startswith(('http://', 'https://')):
+                return URLDetector.clean_and_format_url(url)
+        
+        # Otherwise return the first URL
+        return URLDetector.clean_and_format_url(urls[0])
+    
+    @staticmethod
+    def is_github_pages_url(url: str) -> bool:
+        """Check if URL is a GitHub Pages URL"""
+        return 'github.io' in url
+    
+    @staticmethod
+    def enhance_github_pages_url(url: str) -> str:
+        """Enhance GitHub Pages URL for better downloading"""
+        if not URLDetector.is_github_pages_url(url):
+            return url
+        
+        # Ensure proper formatting for GitHub Pages
+        parsed = urlparse(url)
+        if not parsed.path or parsed.path == '/':
+            # Add index.html for root
+            url = url.rstrip('/') + '/'
+        
+        return url
+    
+    @staticmethod
+    def smart_url_detection(text: str) -> Dict:
+        """Smart URL detection with detailed analysis"""
+        result = {
+            "url": "",
+            "type": "unknown",
+            "is_valid": False,
+            "confidence": 0,
+            "message": ""
+        }
+        
+        urls = URLDetector.extract_urls(text)
+        
+        if not urls:
+            result["message"] = "No URL found in the text"
+            return result
+        
+        # Take the first URL
+        raw_url = urls[0]
+        cleaned_url = URLDetector.clean_and_format_url(raw_url)
+        
+        if not cleaned_url:
+            result["message"] = "Failed to clean URL"
+            return result
+        
+        # Validate URL
+        if not URLDetector.validate_url(cleaned_url):
+            result["message"] = "Invalid URL format"
+            return result
+        
+        # Determine URL type
+        url_type = "standard"
+        confidence = 80
+        
+        if URLDetector.is_github_pages_url(cleaned_url):
+            url_type = "github_pages"
+            confidence = 95
+            cleaned_url = URLDetector.enhance_github_pages_url(cleaned_url)
+        elif any(domain in cleaned_url for domain in ['gitlab.io', 'netlify.app', 'vercel.app']):
+            url_type = "static_hosting"
+            confidence = 90
+        elif cleaned_url.startswith('http://localhost') or '127.0.0.1' in cleaned_url:
+            url_type = "localhost"
+            confidence = 70
+            result["message"] = "Localhost URLs may not be accessible"
+        elif ' ' in cleaned_url:
+            # URL with spaces - likely problematic
+            url_type = "problematic"
+            confidence = 50
+            result["message"] = "URL contains spaces"
+        else:
+            # Standard URL
+            url_type = "standard"
+            confidence = 85
+        
+        result.update({
+            "url": cleaned_url,
+            "type": url_type,
+            "is_valid": True,
+            "confidence": confidence,
+            "original_text": text,
+            "detected_urls": urls
+        })
+        
+        return result
 
 # ===================== DATA MANAGEMENT =====================
 def load_json(file: str) -> Dict:
@@ -136,6 +380,7 @@ tickets_db = load_json(TICKETS_FILE)
 reports_db = load_json(REPORTS_FILE)
 groups_db = load_json(GROUPS_FILE)
 bonus_settings_db = load_json(BONUS_SETTINGS_FILE)
+gift_keys_db = load_json(GIFT_KEYS_FILE)  # NEW: Initialize gift keys database
 
 # Default settings - SYNAX System
 if "maintenance" not in settings_db:
@@ -167,8 +412,13 @@ if "referral_bonus" not in bonus_settings_db:
 if "manual_bonus_enabled" not in bonus_settings_db:
     bonus_settings_db["manual_bonus_enabled"] = True  # Allow manual bonus distribution
 
+# Initialize gift keys database structure if needed
+if "gift_keys" not in gift_keys_db:
+    gift_keys_db["gift_keys"] = {}
+
 save_json(SETTINGS_FILE, settings_db)
 save_json(BONUS_SETTINGS_FILE, bonus_settings_db)
+save_json(GIFT_KEYS_FILE, gift_keys_db)
 
 # ===================== FEATURE 1: KEY GENERATION (SYNAX) =====================
 def generate_key(plan: str = "premium", days: int = 30, downloads: int = 100) -> str:
@@ -224,9 +474,84 @@ def activate_key(key: str, user_id: int) -> Dict:
         logger.error(f"Error activating key: {e}")
         return {"success": False, "error": "Server error"}
 
-# ===================== BULK KEY GENERATION (FIXED) =====================
+# ===================== FEATURE 2: GIFT KEY SYSTEM (NEW FROM Z4X) =====================
+def generate_gift_key(plan_name: str, downloads: int, days: int, max_uses: int = 1, expires_in_days: int = 7) -> str:
+    """Generate special gift key for multiple users - From Z4X Bot"""
+    try:
+        chars = string.ascii_uppercase + string.digits
+        key = f"GIFT-{plan_name.upper()[:10]}-{''.join(random.choices(chars, k=6))}"
+        
+        gift_key_data = {
+            "key": key,
+            "plan_name": plan_name,
+            "downloads": downloads,
+            "days": days,
+            "max_uses": max_uses,
+            "used_count": 0,
+            "used_by": [],
+            "generated_by": OWNER_ID,
+            "generated_at": datetime.now().isoformat(),
+            "expires_at": (datetime.now() + timedelta(days=expires_in_days)).isoformat(),
+            "is_active": True
+        }
+        
+        gift_keys_db["gift_keys"][key] = gift_key_data
+        save_json(GIFT_KEYS_FILE, gift_keys_db)
+        return key
+    except Exception as e:
+        logger.error(f"Error generating gift key: {e}")
+        return None
+
+def redeem_gift_key(key: str, user_id: int) -> Dict:
+    """Redeem gift key - From Z4X Bot"""
+    try:
+        if "gift_keys" not in gift_keys_db or key not in gift_keys_db["gift_keys"]:
+            return {"success": False, "error": "Invalid gift key"}
+        
+        gift_key = gift_keys_db["gift_keys"][key]
+        
+        # Check if key is active
+        if not gift_key.get("is_active", True):
+            return {"success": False, "error": "Gift key is inactive"}
+        
+        # Check if expired
+        expires_at = datetime.fromisoformat(gift_key["expires_at"])
+        if datetime.now() > expires_at:
+            return {"success": False, "error": "Gift key has expired"}
+        
+        # Check if max uses reached
+        if gift_key["used_count"] >= gift_key["max_uses"]:
+            return {"success": False, "error": "Gift key has been used maximum times"}
+        
+        # Check if user already used this key
+        if user_id in gift_key["used_by"]:
+            return {"success": False, "error": "You have already used this gift key"}
+        
+        # Update user
+        user_id_str = str(user_id)
+        if user_id_str not in users_db:
+            users_db[user_id_str] = create_user(user_id)
+        
+        users_db[user_id_str]["downloads_left"] += gift_key["downloads"]
+        users_db[user_id_str]["subscription"] = "gift"
+        users_db[user_id_str]["subscription_expiry"] = (datetime.now() + timedelta(days=gift_key["days"])).isoformat()
+        
+        # Update gift key
+        gift_key["used_count"] += 1
+        gift_key["used_by"].append(user_id)
+        gift_key["last_used_at"] = datetime.now().isoformat()
+        
+        save_json(GIFT_KEYS_FILE, gift_keys_db)
+        save_json(USERS_FILE, users_db)
+        
+        return {"success": True, "data": gift_key}
+    except Exception as e:
+        logger.error(f"Error redeeming gift key: {e}")
+        return {"success": False, "error": "Server error"}
+
+# ===================== FEATURE 3: BULK KEY GENERATION =====================
 def generate_bulk_keys(count: int, plan: str, days: int, downloads: int, generated_by: int) -> List[str]:
-    """Generate multiple keys at once - FIXED"""
+    """Generate multiple keys at once"""
     try:
         batch_id = f"BATCH-{random.randint(10000, 99999)}"
         generated_keys = []
@@ -273,7 +598,7 @@ def generate_bulk_keys(count: int, plan: str, days: int, downloads: int, generat
         logger.error(f"Error generating bulk keys: {e}")
         return []
 
-# ===================== PAYMENT SYSTEM (NEW) =====================
+# ===================== FEATURE 4: PAYMENT SYSTEM =====================
 def create_payment(user_id: int, plan: str, amount: int) -> str:
     """Create a pending payment record"""
     try:
@@ -352,7 +677,7 @@ def reject_payment(payment_id: str, admin_id: int, reason: str = "") -> Dict:
         logger.error(f"Error rejecting payment: {e}")
         return {"success": False, "error": "Server error"}
 
-# ===================== DOWNLOAD HISTORY (NEW) =====================
+# ===================== FEATURE 5: DOWNLOAD HISTORY =====================
 def add_download_history(user_id: int, url: str, file_size: int, file_count: int):
     """Add download to history"""
     try:
@@ -385,7 +710,7 @@ def get_download_history(user_id: int) -> List:
         logger.error(f"Error getting download history: {e}")
         return []
 
-# ===================== SUPPORT SYSTEM (NEW) =====================
+# ===================== FEATURE 6: SUPPORT SYSTEM =====================
 def create_support_ticket(user_id: int, message: str) -> str:
     """Create a support ticket"""
     try:
@@ -443,7 +768,7 @@ def close_ticket(ticket_id: str, admin_id: int) -> Dict:
         logger.error(f"Error closing ticket: {e}")
         return {"success": False, "error": "Server error"}
 
-# ===================== REFERRAL SYSTEM (NEW) =====================
+# ===================== FEATURE 7: REFERRAL SYSTEM =====================
 def process_referral(referrer_id: int, referred_id: int) -> Dict:
     """Process referral and give reward"""
     try:
@@ -475,7 +800,7 @@ def process_referral(referrer_id: int, referred_id: int) -> Dict:
         logger.error(f"Error processing referral: {e}")
         return {"success": False, "error": "Server error"}
 
-# ===================== GROUP ACTIVATION SYSTEM (NEW) =====================
+# ===================== FEATURE 8: GROUP ACTIVATION SYSTEM =====================
 def activate_group(group_id: int, admin_id: int, days: int = 30) -> Dict:
     """Activate a group for unlimited downloads"""
     try:
@@ -573,9 +898,9 @@ def get_active_groups() -> List[Dict]:
         logger.error(f"Error getting active groups: {e}")
         return []
 
-# ===================== BONUS SYSTEM (NEW) =====================
+# ===================== FEATURE 9: BONUS SYSTEM =====================
 def give_bonus(user_id: int, bonus_type: str, amount: int, reason: str = "", admin_id: int = None) -> Dict:
-    """Give bonus to user - NEW"""
+    """Give bonus to user"""
     try:
         user_id_str = str(user_id)
         
@@ -614,7 +939,7 @@ def give_bonus(user_id: int, bonus_type: str, amount: int, reason: str = "", adm
         return {"success": False, "error": "Server error"}
 
 def set_bonus_settings(setting: str, value: int, admin_id: int) -> Dict:
-    """Set bonus settings - NEW"""
+    """Set bonus settings"""
     try:
         if setting in ["welcome_bonus", "referral_bonus"]:
             bonus_settings_db[setting] = value
@@ -626,7 +951,7 @@ def set_bonus_settings(setting: str, value: int, admin_id: int) -> Dict:
         logger.error(f"Error setting bonus: {e}")
         return {"success": False, "error": "Server error"}
 
-# ===================== HELPER FUNCTIONS (SYNAX) =====================
+# ===================== HELPER FUNCTIONS =====================
 def is_admin(user_id: int) -> bool:
     """Check if user is admin - SYNAX System"""
     return user_id in ADMINS or str(user_id) in admins_db
@@ -747,20 +1072,10 @@ def unban_user(user_id: int) -> bool:
         logger.error(f"Error unbanning user: {e}")
         return False
 
-# ===================== URL TO ZIP FEATURE (From Second Bot) - FIXED =====================
-def clean_url(url):
-    """Clean and validate URL - From Second Bot"""
-    try:
-        url = url.strip()
-        if url.startswith('www.'):
-            url = 'https://' + url
-        elif not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-        return url
-    except Exception as e:
-        logger.error(f"Error cleaning URL: {e}")
-        return url
+# ===================== FEATURE 10: ADVANCED URL DETECTION (FROM Z4X BOT) =====================
+# The URL detection is now handled by the URLDetector class above
 
+# ===================== FEATURE 11: ENHANCED WEBSITE DOWNLOAD (FROM Z4X BOT) =====================
 def is_wget_available():
     """Check if wget is available"""
     try:
@@ -768,6 +1083,103 @@ def is_wget_available():
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
+
+def enhanced_download_website(url: str, download_type: str = "full") -> tuple:
+    """Enhanced website download with better error handling from Z4X bot"""
+    temp_dir = tempfile.mkdtemp()
+    
+    try:
+        # Enhanced wget command for all types of websites
+        wget_options = [
+            'wget',
+            '--mirror',
+            '--convert-links',
+            '--adjust-extension',
+            '--page-requisites',
+            '--no-parent',
+            '--no-check-certificate',
+            '--restrict-file-names=windows',
+            '--directory-prefix', temp_dir,
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            '--quiet',
+            '--execute', 'robots=off',
+            '--timeout=30',
+            '--tries=3',
+            '--retry-connrefused',
+            '--waitretry=5',
+            '--random-wait'
+        ]
+        
+        if download_type != "full":
+            wget_options.extend(['-l', '2'])
+        
+        wget_options.append(url)
+        
+        # Execute download
+        result = subprocess.run(wget_options, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode != 0:
+            logger.warning(f"Wget error: {result.stderr}")
+            
+            # Try alternative method for difficult sites
+            logger.info("Trying alternative download method...")
+            alt_cmd = [
+                'wget',
+                '-r',
+                '-l', '3',
+                '-k',
+                '-p',
+                '-E',
+                '--no-check-certificate',
+                '--directory-prefix', temp_dir,
+                '--user-agent', 'Mozilla/5.0',
+                '--quiet',
+                url
+            ]
+            subprocess.run(alt_cmd, capture_output=True, timeout=180)
+        
+        # Check if anything was downloaded
+        if not os.listdir(temp_dir):
+            # Try simple download
+            simple_cmd = f'wget --no-check-certificate --user-agent="Mozilla/5.0" -P "{temp_dir}" "{url}"'
+            os.system(simple_cmd)
+        
+        # Create zip in memory
+        zip_buffer = io.BytesIO()
+        file_count = 0
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
+            for root, dirs, files in os.walk(temp_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    try:
+                        # Skip large files
+                        if os.path.getsize(file_path) > 5 * 1024 * 1024:  # 5MB
+                            continue
+                        
+                        with open(file_path, 'rb') as f:
+                            file_data = f.read()
+                        
+                        arcname = os.path.relpath(file_path, temp_dir)
+                        arcname = arcname.replace('\\', '/')  # Normalize path
+                        zipf.writestr(arcname, file_data)
+                        file_count += 1
+                    except Exception as e:
+                        logger.error(f"Error adding {file_path} to zip: {e}")
+        
+        zip_buffer.seek(0)
+        return zip_buffer, file_count
+        
+    except Exception as e:
+        logger.error(f"Error in enhanced download: {e}")
+        raise e
+    finally:
+        # Cleanup temp directory
+        if temp_dir and os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception as e:
+                logger.error(f"Error cleaning up temp directory: {e}")
 
 def download_with_requests(url, temp_dir, download_type="full"):
     """Download website using requests library as fallback"""
@@ -890,50 +1302,19 @@ def download_with_requests(url, temp_dir, download_type="full"):
         raise e
 
 def create_direct_zip(url, download_type="full"):
-    """Download and create zip directly - From Second Bot - FIXED"""
+    """Download and create zip directly - Enhanced with Z4X features"""
     temp_dir = None
     try:
         # Create temporary directory
         temp_dir = tempfile.mkdtemp()
         
-        # Try wget first if available
+        # Try enhanced download first if wget is available
         if is_wget_available():
             try:
-                if download_type == "full":
-                    cmd = [
-                        "wget", "--mirror", "--convert-links", "--adjust-extension", 
-                        "--page-requisites", "--no-parent", "--no-check-certificate", 
-                        "-e", "robots=off", "--user-agent=Mozilla/5.0", "--quiet", 
-                        "-P", temp_dir, url, "--timeout=30", "--tries=3"
-                    ]
-                else:
-                    cmd = [
-                        "wget", "-r", "-l", "2", "-k", "-p", "-E", "--no-check-certificate",
-                        "-e", "robots=off", "--quiet", "-P", temp_dir, url, 
-                        "--timeout=30", "--tries=3"
-                    ]
-                
-                # Execute download with subprocess with timeout
-                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                try:
-                    stdout, stderr = process.communicate(timeout=120)  # 2 minutes timeout
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    stdout, stderr = process.communicate()
-                    logger.warning(f"wget process timed out for URL: {url}")
-                
-                # Check if wget succeeded
-                if process.returncode != 0:
-                    logger.error(f"wget failed with return code {process.returncode}: {stderr.decode()}")
-                    # Fall back to requests
-                    file_count = download_with_requests(url, temp_dir, download_type)
-                else:
-                    # Count files downloaded by wget
-                    file_count = 0
-                    for root, dirs, files in os.walk(temp_dir):
-                        file_count += len(files)
+                zip_buffer, file_count = enhanced_download_website(url, download_type)
+                return zip_buffer, file_count
             except Exception as e:
-                logger.error(f"Error with wget: {e}")
+                logger.error(f"Error with enhanced download: {e}")
                 # Fall back to requests
                 file_count = download_with_requests(url, temp_dir, download_type)
         else:
@@ -973,16 +1354,16 @@ def create_direct_zip(url, download_type="full"):
             except Exception as e:
                 logger.error(f"Error cleaning up temp directory: {e}")
 
-# ===================== BUTTON MENUS (SYNAX Style - Enhanced) =====================
+# ===================== BUTTON MENUS =====================
 def get_main_menu() -> InlineKeyboardMarkup:
-    """Main menu buttons - SYNAX Style (Enhanced)"""
+    """Main menu buttons - SYNAX Style (Enhanced with Gift Keys)"""
     keyboard = [
         [InlineKeyboardButton("⬇️ 𝘿𝙤𝙬𝙣𝙡𝙤𝙖𝙙", callback_data="download_menu"),
          InlineKeyboardButton("💰 𝘽𝙪𝙮", callback_data="buy_menu")],
         [InlineKeyboardButton("📊 𝙎𝙩𝙖𝙩𝙨", callback_data="my_stats"),
          InlineKeyboardButton("🔑 𝘼𝙘𝙩𝙞𝙫𝙖𝙩𝙚 𝙆𝙀𝙔", callback_data="activate_key_menu")],
-        [InlineKeyboardButton("📜 𝙃𝙞𝙨𝙩𝙤𝙧𝙮", callback_data="download_history"),
-         InlineKeyboardButton("🆘 𝙃𝙚𝙡𝙥", callback_data="help")],
+        [InlineKeyboardButton("🎁 𝙍𝙚𝙙𝙚𝙚𝙢 𝙂𝙞𝙛𝙩", callback_data="redeem_gift"),
+         InlineKeyboardButton("📜 𝙃𝙞𝙨𝙩𝙤𝙧𝙮", callback_data="download_history")],
         [InlineKeyboardButton("🎫 𝙎𝙪𝙥𝙥𝙤𝙧𝙩", callback_data="support_menu"),
          InlineKeyboardButton("👥 𝙍𝙚𝙛𝙚𝙧𝙧𝙖𝙡", callback_data="referral_menu")],
         [InlineKeyboardButton("📢 𝙐𝙥𝙙𝙖𝙩𝙚", url=PROMOTION_CHANNEL),
@@ -1011,7 +1392,7 @@ def get_buy_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 def get_admin_menu() -> InlineKeyboardMarkup:
-    """Admin menu - SYNAX System (Enhanced)"""
+    """Admin menu - SYNAX System (Enhanced with Gift Keys)"""
     keyboard = [
         [InlineKeyboardButton("📢 𝘽𝙧𝙤𝙖𝙙𝙘𝙖𝙨𝙩", callback_data="admin_broadcast"),
          InlineKeyboardButton("👥 𝙐𝙨𝙚𝙧𝙨", callback_data="admin_all_users")],
@@ -1029,17 +1410,9 @@ def get_admin_menu() -> InlineKeyboardMarkup:
          InlineKeyboardButton("📊 𝙍𝙚𝙥𝙤𝙧𝙩𝙨", callback_data="admin_reports")],
         [InlineKeyboardButton("👥 𝙂𝙧𝙤𝙪𝙥𝙨", callback_data="admin_groups"),
          InlineKeyboardButton("🎁 𝘽𝙤𝙣𝙪𝙨 𝙎𝙚𝙩𝙩𝙞𝙣𝙜𝙨", callback_data="admin_bonus_settings")],
+        [InlineKeyboardButton("🎁 𝙂𝙚𝙣 𝙂𝙞𝙛𝙩 𝙆𝙚𝙮", callback_data="admin_gen_gift"),
+         InlineKeyboardButton("🎁 𝙂𝙞𝙛𝙩 𝙎𝙩𝙖𝙩𝙨", callback_data="admin_gift_stats")],
         [InlineKeyboardButton("🔙 𝙈𝙖𝙞𝙣 𝙈𝙚𝙣𝙪", callback_data="main_menu")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-def get_bonus_settings_menu() -> InlineKeyboardMarkup:
-    """Bonus settings menu - NEW"""
-    keyboard = [
-        [InlineKeyboardButton("🎁 WELCOME BONUS", callback_data="set_welcome_bonus")],
-        [InlineKeyboardButton("👥 REFERRAL BONUS", callback_data="set_referral_bonus")],
-        [InlineKeyboardButton("🎁 GIVE BONUS", callback_data="give_bonus_form")],
-        [InlineKeyboardButton("🔙 ADMIN MENU", callback_data="admin_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -1075,7 +1448,7 @@ def get_payment_approval_keyboard(payment_id: str):
     return InlineKeyboardMarkup(keyboard)
 
 def get_bulk_key_form() -> InlineKeyboardMarkup:
-    """Bulk key generation form - FIXED"""
+    """Bulk key generation form"""
     keyboard = [
         [InlineKeyboardButton("🔑 BASIC (5 DL)", callback_data="bulk_form_basic")],
         [InlineKeyboardButton("🔑 PRO (40 DL)", callback_data="bulk_form_pro")],
@@ -1112,9 +1485,19 @@ def get_groups_menu() -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# ===================== USERS LIST WITH PAGINATION (FIXED) =====================
+def get_bonus_settings_menu() -> InlineKeyboardMarkup:
+    """Bonus settings menu"""
+    keyboard = [
+        [InlineKeyboardButton("🎁 WELCOME BONUS", callback_data="set_welcome_bonus")],
+        [InlineKeyboardButton("👥 REFERRAL BONUS", callback_data="set_referral_bonus")],
+        [InlineKeyboardButton("🎁 GIVE BONUS", callback_data="give_bonus_form")],
+        [InlineKeyboardButton("🔙 ADMIN MENU", callback_data="admin_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# ===================== USERS LIST WITH PAGINATION =====================
 async def show_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
-    """Show all users with pagination - FIXED"""
+    """Show all users with pagination"""
     try:
         query = update.callback_query
         user_id = update.effective_user.id
@@ -1180,7 +1563,7 @@ async def show_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
 
 # ===================== COMMAND HANDLERS =====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start command - SYNAX Style (Fixed without Image)"""
+    """Start command - SYNAX Style"""
     try:
         user = update.effective_user
         user_id = user.id
@@ -1243,10 +1626,12 @@ _Professional Website Downloader_
 
 {'🎁 **WELCOME BONUS:** You received ' + str(bonus_settings_db.get('welcome_bonus', 5)) + ' downloads as a welcome gift!' if welcome_bonus_given else ''}
 
+🎁 **NEW:** Redeem gift keys for special offers!
+
 👇 **USE BUTTONS BELOW:**
     """
         
-        # Send welcome message with buttons (no image)
+        # Send welcome message with buttons
         if update.message:
             await update.message.reply_text(
                 welcome_msg,
@@ -1286,6 +1671,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🔑 **SUBSCRIPTION KEYS:**
 Use /activate <key> to activate subscription
+
+🎁 **GIFT KEYS:**
+Use /redeem <gift-key> to redeem gift
 
 📜 **DOWNLOAD HISTORY:**
 Check your previous downloads in the HISTORY section
@@ -1346,6 +1734,9 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         used_keys = sum(1 for k in keys_db.values() if k.get("is_used", False))
         open_tickets = sum(1 for t in tickets_db.values() if t.get("status") == "open")
         active_groups = len(get_active_groups())
+        total_gift_keys = len(gift_keys_db.get("gift_keys", {}))
+        active_gift_keys = sum(1 for k in gift_keys_db.get("gift_keys", {}).values() 
+                              if k.get("is_active", True) and datetime.now() < datetime.fromisoformat(k.get("expires_at", "2000-01-01")))
         
         for u in users_db.values():
             try:
@@ -1378,6 +1769,8 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Unused Keys: `{total_keys - used_keys}`
 • Open Tickets: `{open_tickets}`
 • Active Groups: `{active_groups}`
+• Gift Keys: `{total_gift_keys}`
+• Active Gift Keys: `{active_gift_keys}`
 • Maintenance: `{'✅ ON' if settings_db.get('maintenance') else '❌ OFF'}`
 
 🎁 **BONUS SETTINGS:**
@@ -1591,7 +1984,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in stats command: {e}")
         await update.message.reply_text("❌ Error loading stats.")
 
-# ===================== ACTIVATE KEY (SYNAX System) =====================
+# ===================== ACTIVATE KEY =====================
 async def activate_key_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Activate subscription key (Enhanced)"""
     try:
@@ -1630,7 +2023,141 @@ async def activate_key_command(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Error in activate key command: {e}")
         await update.message.reply_text("❌ Error activating key.")
 
-# ===================== GENERATE KEY (SYNAX System) =====================
+# ===================== REDEEM GIFT KEY =====================
+async def redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Redeem gift key - From Z4X Bot"""
+    try:
+        user_id = update.effective_user.id
+        user_data = get_user_stats(user_id)
+        
+        if context.args and len(context.args) > 0:
+            key = context.args[0].upper()
+            result = redeem_gift_key(key, user_id)
+            
+            if result["success"]:
+                gift_data = result["data"]
+                
+                gift_msg = f"""
+🎁 **GIFT REDEEMED SUCCESSFULLY!** 🎁
+
+**Gift Details:**
+• Gift Name: {gift_data['plan_name']}
+• Downloads: {gift_data['downloads']}
+• Days: {gift_data['days']}
+• Expires: {datetime.fromisoformat(gift_data['expires_at']).strftime('%d %b %Y')}
+
+**Your Account Now:**
+• Total Downloads: {user_data['downloads_left'] + gift_data['downloads']}
+• Gift Status: Active for {gift_data['days']} days
+
+🎉 **Enjoy your gift! Thank the gift giver!** 🎉
+"""
+                
+                await update.message.reply_text(
+                    gift_msg,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+            else:
+                await update.message.reply_text(
+                    f"❌ **GIFT REDEMPTION FAILED**\n\n"
+                    f"Error: {result['error']}\n\n"
+                    f"Make sure:\n"
+                    f"1. Gift key is correct\n"
+                    f"2. Gift is not expired\n"
+                    f"3. You haven't used it before\n"
+                    f"4. Gift is still active"
+                )
+        else:
+            await update.message.reply_text(
+                "🎁 **REDEEM GIFT KEY** 🎁\n\n"
+                "Usage: `/redeem <gift-key>`\n\n"
+                "**Example:**\n"
+                "`/redeem GIFT-DIWALI-ABC123`\n\n"
+                "**Get gift keys from:**\n"
+                "• Special events\n"
+                "• Giveaways\n"
+                "• Admin rewards\n\n"
+                "🎉 **Gifts can be used by multiple users!**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    except Exception as e:
+        logger.error(f"Error in redeem command: {e}")
+        await update.message.reply_text("❌ Error redeeming gift key.")
+
+# ===================== GENERATE GIFT KEY =====================
+async def genred_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate gift key (admin only) - From Z4X Bot"""
+    try:
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ **ADMIN ONLY COMMAND!**")
+            return
+        
+        if context.args and len(context.args) >= 3:
+            try:
+                # Format: /genred <plan_name> <downloads> <days> [max_uses] [expire_days]
+                plan_name = context.args[0]
+                downloads = int(context.args[1])
+                days = int(context.args[2])
+                max_uses = int(context.args[3]) if len(context.args) > 3 else 10
+                expire_days = int(context.args[4]) if len(context.args) > 4 else 7
+                
+                if downloads <= 0 or days <= 0 or max_uses <= 0 or expire_days <= 0:
+                    await update.message.reply_text("❌ **All values must be positive numbers!**")
+                    return
+                
+                key = generate_gift_key(plan_name, downloads, days, max_uses, expire_days)
+                
+                await update.message.reply_text(
+                    f"🎁 **GIFT KEY GENERATED** 🎁\n\n"
+                    f"**Gift Details:**\n"
+                    f"• Name: {plan_name}\n"
+                    f"• Key: `{key}`\n"
+                    f"• Downloads: {downloads}\n"
+                    f"• Days: {days}\n"
+                    f"• Max Uses: {max_uses}\n"
+                    f"• Expires In: {expire_days} days\n"
+                    f"• Expiry Date: {(datetime.now() + timedelta(days=expire_days)).strftime('%d %b %Y')}\n\n"
+                    f"**Share this gift key with users:**\n"
+                    f"`/redeem {key}`\n\n"
+                    f"**Or send this message:**\n"
+                    f"🎉 **Special Gift!** 🎉\n"
+                    f"Use `/redeem {key}` to get {downloads} downloads for {days} days!\n"
+                    f"Valid for {max_uses} users, expires in {expire_days} days.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                    
+            except ValueError:
+                await update.message.reply_text(
+                    "❌ **Invalid input!**\n"
+                    "Downloads, days, max_uses और expire_days numbers होने चाहिए।\n\n"
+                    "Example: `/genred DiwaliSpecial 25 30 50 10`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+        else:
+            await update.message.reply_text(
+                "🎁 **GENERATE GIFT KEY** 🎁\n\n"
+                "Create special gift keys for multiple users.\n\n"
+                "📝 **Usage:**\n"
+                "`/genred <plan_name> <downloads> <days> [max_uses] [expire_days]`\n\n"
+                "📌 **Examples:**\n"
+                "• `/genred DiwaliGift 25 30` - 25 downloads for 30 days, 10 uses, expires in 7 days\n"
+                "• `/genred NewYear 50 60 100 15` - 50 downloads for 60 days, 100 uses, expires in 15 days\n"
+                "• `/genred SpecialOffer 100 365 1000 30` - 100 downloads for 1 year, 1000 uses\n\n"
+                "🎯 **Perfect for:**\n"
+                "• Special events (Diwali, Christmas, New Year)\n"
+                "• Giveaways and contests\n"
+                "• Promotional campaigns\n"
+                "• Rewarding active users",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    except Exception as e:
+        logger.error(f"Error in genred command: {e}")
+        await update.message.reply_text("❌ Error generating gift key.")
+
+# ===================== GENERATE KEY =====================
 async def generate_key_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Generate subscription key (admin only) - Enhanced"""
     try:
@@ -1679,7 +2206,7 @@ async def generate_key_command(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Error in generate key command: {e}")
         await update.message.reply_text("❌ Error generating key.")
 
-# ===================== GIVE COMMAND (NEW - ओनर द्वारा यूज़र को डाउनलोड्स देना) =====================
+# ===================== GIVE COMMAND =====================
 async def give_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Give downloads to user (owner only) - Enhanced"""
     try:
@@ -1971,9 +2498,9 @@ async def list_groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.error(f"Error in list groups command: {e}")
         await update.message.reply_text("❌ Error loading groups.")
 
-# ===================== BROADCAST WITH IMAGE (NEW) =====================
-async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Broadcast message with image to all users (admin only)"""
+# ===================== BONUS SETTINGS COMMANDS =====================
+async def setwelcomebonus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set welcome bonus (admin only)"""
     try:
         user_id = update.effective_user.id
         
@@ -1981,124 +2508,667 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ **ADMIN ONLY!**")
             return
         
-        if update.message.photo:
-            # If message has a photo, use it for broadcast
-            photo_file_id = update.message.photo[-1].file_id
-            caption = update.message.caption or ""
-            
-            # Ask for confirmation
+        if not context.args or len(context.args) < 1:
             await update.message.reply_text(
-                f"📢 **BROADCAST WITH IMAGE** 📢\n\n"
-                f"Caption: {caption[:100]}...\n\n"
-                f"Reply with `confirm_broadcast` to send this to all users\n"
-                f"Reply with `cancel_broadcast` to cancel",
+                "🎁 **SET WELCOME BONUS** 🎁\n\n"
+                "Usage: `/setwelcomebonus <amount>`\n\n"
+                "Example: `/setwelcomebonus 10`",
                 parse_mode=ParseMode.MARKDOWN
             )
+            return
+        
+        try:
+            amount = int(context.args[0])
+            if amount < 0:
+                await update.message.reply_text("❌ **Invalid amount!** Please specify a positive number.")
+                return
             
-            # Store broadcast info in context
-            context.user_data['broadcast_photo'] = photo_file_id
-            context.user_data['broadcast_caption'] = caption
-            context.user_data['awaiting_broadcast_confirm'] = True
-        else:
-            await update.message.reply_text(
-                "📢 **BROADCAST WITH IMAGE** 📢\n\n"
-                "Please send a photo with caption to broadcast.\n\n"
-                "Example: Send a photo with caption 'New update available!'",
-                parse_mode=ParseMode.MARKDOWN
-            )
+            # Set welcome bonus
+            result = set_bonus_settings("welcome_bonus", amount, user_id)
+            
+            if result["success"]:
+                await update.message.reply_text(
+                    f"✅ **Welcome bonus updated!**\n\n"
+                    f"New welcome bonus: `{amount}` downloads",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                await update.message.reply_text("❌ Error updating welcome bonus.")
+        except ValueError:
+            await update.message.reply_text("❌ **Invalid amount!** Please specify a valid number.")
     except Exception as e:
-        logger.error(f"Error in broadcast command: {e}")
-        await update.message.reply_text("❌ Error preparing broadcast.")
+        logger.error(f"Error in setwelcomebonus command: {e}")
+        await update.message.reply_text("❌ Error setting welcome bonus.")
 
-# ===================== ADMIN COMMAND HANDLERS (SYNAX System) =====================
-async def handle_add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle add admin from callback"""
+async def setreferralbonus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set referral bonus (admin only)"""
     try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_owner(user_id):
-            await query.answer("❌ Owner Only!", show_alert=True)
-            return
-        
-        await query.edit_message_text(
-            "🔧 **ADD ADMIN**\n\n"
-            "Please reply with the user ID to make admin:\n"
-            "Format: `addadmin <user_id>`\n\n"
-            "Example: `addadmin 1234567890`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        context.user_data['awaiting_addadmin'] = True
-    except Exception as e:
-        logger.error(f"Error handling add admin: {e}")
-        await query.answer("❌ Error loading form!", show_alert=True)
-
-async def handle_remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle remove admin from callback"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_owner(user_id):
-            await query.answer("❌ Owner Only!", show_alert=True)
-            return
-        
-        await query.edit_message_text(
-            "🗑️ **REMOVE ADMIN**\n\n"
-            "Please reply with the user ID to remove as admin:\n"
-            "Format: `removeadmin <user_id>`\n\n"
-            "Example: `removeadmin 1234567890`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        context.user_data['awaiting_removeadmin'] = True
-    except Exception as e:
-        logger.error(f"Error handling remove admin: {e}")
-        await query.answer("❌ Error loading form!", show_alert=True)
-
-async def handle_ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle ban user from callback"""
-    try:
-        query = update.callback_query
         user_id = update.effective_user.id
         
         if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
+            await update.message.reply_text("❌ **ADMIN ONLY!**")
             return
         
-        await query.edit_message_text(
-            "🚫 **BAN USER**\n\n"
-            "Please reply with the user ID to ban:\n"
-            "Format: `ban <user_id> <reason>`\n\n"
-            "Example: `ban 1234567890 Spamming`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        context.user_data['awaiting_ban'] = True
+        if not context.args or len(context.args) < 1:
+            await update.message.reply_text(
+                "👥 **SET REFERRAL BONUS** 👥\n\n"
+                "Usage: `/setreferralbonus <amount>`\n\n"
+                "Example: `/setreferralbonus 10`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            amount = int(context.args[0])
+            if amount < 0:
+                await update.message.reply_text("❌ **Invalid amount!** Please specify a positive number.")
+                return
+            
+            # Set referral bonus
+            result = set_bonus_settings("referral_bonus", amount, user_id)
+            
+            if result["success"]:
+                await update.message.reply_text(
+                    f"✅ **Referral bonus updated!**\n\n"
+                    f"New referral bonus: `{amount}` downloads",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                await update.message.reply_text("❌ Error updating referral bonus.")
+        except ValueError:
+            await update.message.reply_text("❌ **Invalid amount!** Please specify a valid number.")
     except Exception as e:
-        logger.error(f"Error handling ban user: {e}")
-        await query.answer("❌ Error loading form!", show_alert=True)
+        logger.error(f"Error in setreferralbonus command: {e}")
+        await update.message.reply_text("❌ Error setting referral bonus.")
 
-async def handle_unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle unban user from callback"""
+async def givebonus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Give bonus to user (admin only)"""
+    try:
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ **ADMIN ONLY!**")
+            return
+        
+        if not context.args or len(context.args) < 3:
+            await update.message.reply_text(
+                "🎁 **GIVE BONUS** 🎁\n\n"
+                "Usage: `/givebonus <user_id> <type> <amount> [reason]`\n\n"
+                "Types: `downloads` or `points`\n\n"
+                "Example: `/givebonus 1234567890 downloads 10 Special bonus`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            target_user_id = int(context.args[0])
+            bonus_type = context.args[1].lower()
+            amount = int(context.args[2])
+            reason = " ".join(context.args[3:]) if len(context.args) > 3 else "Admin bonus"
+            
+            if bonus_type not in ["downloads", "points"]:
+                await update.message.reply_text("❌ **Invalid bonus type!** Please use 'downloads' or 'points'.")
+                return
+            
+            if amount <= 0:
+                await update.message.reply_text("❌ **Invalid amount!** Please specify a positive number.")
+                return
+            
+            # Give bonus
+            result = give_bonus(target_user_id, bonus_type, amount, reason, user_id)
+            
+            if result["success"]:
+                # Get user info
+                target_user_data = users_db.get(str(target_user_id), {})
+                username = target_user_data.get('username', 'N/A')
+                first_name = target_user_data.get('first_name', 'N/A')
+                
+                await update.message.reply_text(
+                    f"✅ **Bonus Given!**\n\n"
+                    f"User: @{username} | {first_name} (`{target_user_id}`)\n"
+                    f"Type: {bonus_type}\n"
+                    f"Amount: {amount}\n"
+                    f"Reason: {reason}",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+                # Notify user
+                try:
+                    await context.bot.send_message(
+                        chat_id=target_user_id,
+                        text=f"🎁 **BONUS RECEIVED!** 🎁\n\n"
+                             f"You received {amount} {bonus_type} from admin!\n\n"
+                             f"Reason: {reason}\n\n"
+                             f"Thank you for using SYNAX Bot!",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not notify user {target_user_id}: {e}")
+            else:
+                await update.message.reply_text("❌ Error giving bonus.")
+        except ValueError:
+            await update.message.reply_text(
+                "❌ **Invalid format!**\n\n"
+                "Usage: `givebonus <user_id> <type> <amount> <reason>`\n"
+                "Example: `givebonus 1234567890 downloads 10 Special bonus`"
+            )
+    except Exception as e:
+        logger.error(f"Error in givebonus command: {e}")
+        await update.message.reply_text("❌ Error giving bonus.")
+
+# ===================== URL DOWNLOAD =====================
+async def handle_url_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle URL download - Enhanced with Z4X URL Detection"""
     try:
         query = update.callback_query
         user_id = update.effective_user.id
         
-        if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
-            return
-        
         await query.edit_message_text(
-            "✅ **UNBAN USER**\n\n"
-            "Please reply with the user ID to unban:\n"
-            "Format: `unban <user_id>`\n\n"
-            "Example: `unban 1234567890`",
+            "🌐 **URL DOWNLOAD**\n\n"
+            "Simply send me any website URL. I can detect:\n"
+            "• Standard URLs (https://example.com)\n"
+            "• Short URLs (example.com)\n"
+            "• Subdomains (sub.example.com)\n"
+            "• GitHub Pages (username.github.io)\n"
+            "• Static hosting (netlify.app, vercel.app)\n"
+            "• And many more!\n\n"
+            "**Note:** You need downloads balance to use this feature.",
+            reply_markup=get_download_menu(),
             parse_mode=ParseMode.MARKDOWN
         )
-        context.user_data['awaiting_unban'] = True
+        return AWAITING_URL
     except Exception as e:
-        logger.error(f"Error handling unban user: {e}")
-        await query.answer("❌ Error loading form!", show_alert=True)
+        logger.error(f"Error handling URL download: {e}")
+        await query.answer("❌ Error loading download form!", show_alert=True)
+        return ConversationHandler.END
 
+async def process_url_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Process URL download - Enhanced with Z4X URL Detection"""
+    try:
+        user_id = update.effective_user.id
+        message_text = update.message.text
+        user_data = get_user_stats(user_id)
+        
+        # Check maintenance
+        if settings_db.get("maintenance"):
+            await update.message.reply_text("🔧 **Bot is under maintenance. Please try later.**")
+            return ConversationHandler.END
+        
+        # Check ban status
+        if user_data.get("is_banned"):
+            await update.message.reply_text("🚫 **Your account is banned!**")
+            return ConversationHandler.END
+        
+        # Check if user is in an activated group
+        group_unlimited = False
+        if update.message.chat.type in [Chat.GROUP, Chat.SUPERGROUP]:
+            if is_group_active(update.message.chat.id):
+                group_unlimited = True
+        
+        # Check downloads
+        if user_data["downloads_left"] <= 0 and not is_owner(user_id) and not group_unlimited:
+            await update.message.reply_text(
+                "❌ **No downloads left!**\nUse BUY button to purchase more.",
+                reply_markup=get_buy_menu()
+            )
+            return ConversationHandler.END
+        
+        # Use advanced URL detection from Z4X bot
+        url_detection = URLDetector.smart_url_detection(message_text)
+        
+        if not url_detection["is_valid"]:
+            error_msg = url_detection.get("message", "Invalid URL")
+            await update.message.reply_text(
+                f"❌ **Invalid URL!**\n\n"
+                f"{error_msg}\n\n"
+                "Please send a valid website URL.\n"
+                "**Examples:**\n"
+                "• https://example.com\n"
+                "• www.example.com\n"
+                "• example.com\n"
+                "• github.io/username/project",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return ConversationHandler.END
+        
+        url = url_detection["url"]
+        url_type = url_detection["type"]
+        confidence = url_detection["confidence"]
+        
+        # Show URL detection info for debugging
+        if is_admin(user_id):
+            await update.message.reply_text(
+                f"🔍 **URL Detection Results:**\n\n"
+                f"URL: `{url}`\n"
+                f"Type: {url_type}\n"
+                f"Confidence: {confidence}%\n\n"
+                f"Starting download...",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        
+        context.user_data['download_url'] = url
+        
+        # Ask for download type
+        await update.message.reply_text(
+            f"🌐 **Website URL Detected**\n\n"
+            f"URL: {url}\n"
+            f"Type: {url_type.replace('_', ' ').title()}\n\n"
+            f"Please choose download type:",
+            reply_markup=get_download_type_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return AWAITING_DOWNLOAD_TYPE
+    except Exception as e:
+        logger.error(f"Error processing URL download: {e}")
+        await update.message.reply_text("❌ Error processing URL.")
+        return ConversationHandler.END
+
+async def process_download(update: Update, context: ContextTypes.DEFAULT_TYPE, download_type: str):
+    """Process the actual download - Enhanced with Z4X Download System"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        user_data = get_user_stats(user_id)
+        
+        url = context.user_data.get('download_url')
+        if not url:
+            await query.answer("❌ No URL found!", show_alert=True)
+            return ConversationHandler.END
+        
+        # Check if user is in an activated group
+        group_unlimited = False
+        if query.message.chat.type in [Chat.GROUP, Chat.SUPERGROUP]:
+            if is_group_active(query.message.chat.id):
+                group_unlimited = True
+        
+        await query.answer()
+        await query.edit_message_text(f"⏳ **Starting {download_type.upper()} download...**")
+        
+        # Use enhanced download from Z4X bot
+        try:
+            zip_buffer, file_count = enhanced_download_website(url, download_type)
+        except Exception as e:
+            logger.error(f"Error with enhanced download: {e}")
+            # Fall back to original method
+            zip_buffer, file_count = create_direct_zip(url, download_type)
+        
+        file_size = zip_buffer.getbuffer().nbytes
+        file_size_mb = file_size / 1024 / 1024
+        
+        if file_size > MAX_FILE_SIZE:
+            await query.edit_message_text(
+                f"❌ **File Too Large**\n\nSize: {file_size_mb:.1f}MB\nLimit: 50MB\n\nTry partial download instead."
+            )
+            return ConversationHandler.END
+        
+        # Create filename
+        domain = url.replace("https://", "").replace("http://", "").split("/")[0]
+        filename = f"{domain}_{download_type}_{int(time.time())}.zip"
+        
+        # Send file
+        await query.edit_message_text("📤 Sending file...")
+        
+        caption = f"""
+✅ **Website Source Downloaded!**
+
+**Details:**
+• Website: {url}
+• Type: {download_type.upper()} Download
+• File Size: {file_size_mb:.2f} MB
+• Files: {file_count}
+
+Made By 💤 SYNAX Network 💤
+Admin: {OWNER_USERNAME}
+{PROMOTION_CHANNEL}
+{PROMOTION_GROUPS[0]}
+"""
+        
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=zip_buffer,
+            filename=filename,
+            caption=caption,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        # Update user stats
+        if not is_owner(user_id) and not group_unlimited:
+            user_data["downloads_left"] -= 1
+        user_data["total_downloads"] += 1
+        users_db[str(user_id)] = user_data
+        save_json(USERS_FILE, users_db)
+        
+        # Add to download history
+        add_download_history(user_id, url, file_size, file_count)
+        
+        await query.edit_message_text(f"✅ **Done!** File sent successfully.\n\nFiles: {file_count}\nSize: {file_size_mb:.1f}MB")
+        return ConversationHandler.END
+        
+    except Exception as e:
+        logger.error(f"Download error: {e}")
+        try:
+            error_msg = str(e)[:200]
+            
+            if "timeout" in error_msg.lower():
+                error_msg = "⚠️ **Download timeout!** The website is too large or slow."
+            elif "No files" in error_msg:
+                error_msg = "⚠️ **No files downloaded!** The website might be empty or inaccessible."
+            
+            await query.edit_message_text(
+                f"❌ **Download Failed**\n\n{error_msg}\n\n"
+                f"**Try:**\n"
+                f"• Different website\n"
+                f"• Partial download option\n\n"
+                f"**Contact:** {OWNER_USERNAME} for help"
+            )
+        except:
+            pass
+        return ConversationHandler.END
+
+# ===================== CALLBACK QUERY HANDLER =====================
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle button callbacks - Enhanced"""
+    try:
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = update.effective_user.id
+        data = query.data
+        
+        # Users pagination
+        if data.startswith("users_page_"):
+            try:
+                page = int(data.split("_")[2])
+                await show_all_users(update, context, page)
+            except:
+                await query.answer("Error loading page!", show_alert=True)
+            return
+        
+        # Download type handlers
+        if data == "full_download":
+            return await process_download(update, context, "full")
+        elif data == "partial_download":
+            return await process_download(update, context, "partial")
+        
+        # Gift key redemption
+        elif data == "redeem_gift":
+            await query.edit_message_text(
+                "🎁 **REDEEM GIFT KEY** 🎁\n\n"
+                "To redeem a gift key, use:\n\n"
+                "**Command:** `/redeem <gift-key>`\n\n"
+                "**Example:**\n"
+                "`/redeem GIFT-DIWALI-ABC123`\n\n"
+                "**Get gift keys from:**\n"
+                "• Special events\n"
+                "• Giveaways\n"
+                "• Admin rewards\n\n"
+                "🎉 **Gifts can be used by multiple users!**",
+                reply_markup=get_back_button("main_menu"),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # QR Code handlers
+        elif data.startswith("qr_"):
+            plan = data[3:]
+            plan_details = {
+                "basic": {"price": 10, "downloads": 5},
+                "pro": {"price": 40, "downloads": 40},
+                "premium": {"price": 100, "downloads": 150}
+            }
+            
+            if plan in plan_details:
+                details = plan_details[plan]
+                
+                # Create payment record
+                payment_id = create_payment(user_id, plan, details['price'])
+                
+                if payment_id:
+                    # Send QR code image
+                    await context.bot.send_photo(
+                        chat_id=query.message.chat_id,
+                        photo=QR_CODE_URL,
+                        caption=f"📱 **QR CODE FOR {plan.upper()} PLAN**\n\n"
+                               f"**Amount:** ₹{details['price']}\n"
+                               f"**Plan:** {plan.upper()}\n"
+                               f"**Downloads:** {details['downloads']}\n"
+                               f"**Payment ID:** {payment_id}\n\n"
+                               f"**Instructions:**\n"
+                               f"1. Scan QR code\n"
+                               f"2. Pay ₹{details['price']}\n"
+                               f"3. Take screenshot\n"
+                               f"4. Send Screenshot Now",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    
+                    await query.answer("✅ QR Code sent!")
+                else:
+                    await query.answer("❌ Error creating payment!", show_alert=True)
+            return
+        
+        # Key generation handlers
+        elif data.startswith("genkey_"):
+            plan = data[7:]
+            if plan in ["basic", "pro", "premium"]:
+                downloads = 100
+                if plan == "basic":
+                    downloads = 5
+                elif plan == "pro":
+                    downloads = 40
+                
+                key = generate_key(plan, 30, downloads)
+                if key:
+                    await query.edit_message_text(
+                        f"🔑 **KEY GENERATED** 🔑\n\n"
+                        f"Key: `{key}`\n"
+                        f"Plan: {plan.upper()}\n"
+                        f"Downloads: {downloads}\n"
+                        f"Days: 30\n\n"
+                        f"**Send to user:**\n"
+                        f"`/activate {key}`",
+                        reply_markup=get_back_button("admin_menu"),
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                else:
+                    await query.edit_message_text(
+                        "❌ Error generating key!",
+                        reply_markup=get_back_button("admin_menu"),
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+            return
+        
+        # Gift key generation
+        elif data == "admin_gen_gift":
+            if not is_admin(user_id):
+                await query.answer("❌ Admin Only!", show_alert=True)
+                return
+            
+            await query.edit_message_text(
+                "🎁 **GENERATE GIFT KEY**\n\n"
+                "Please use command:\n"
+                "`/genred <plan_name> <downloads> <days> [max_uses] [expire_days]`\n\n"
+                "**Example:**\n"
+                "`/genred DiwaliGift 25 30 100 10`\n\n"
+                "This creates a gift key for 25 downloads for 30 days,\n"
+                "usable by 100 users, expires in 10 days.",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=get_back_button("admin_menu")
+            )
+            return
+        
+        # Gift stats
+        elif data == "admin_gift_stats":
+            if not is_admin(user_id):
+                await query.answer("❌ Admin Only!", show_alert=True)
+                return
+            
+            if "gift_keys" not in gift_keys_db:
+                gift_keys_db["gift_keys"] = {}
+            
+            gift_keys = gift_keys_db["gift_keys"]
+            total_keys = len(gift_keys)
+            active_keys = sum(1 for k in gift_keys.values() if k.get("is_active", True))
+            expired_keys = sum(1 for k in gift_keys.values() if datetime.now() > datetime.fromisoformat(k.get("expires_at", "2000-01-01")))
+            total_uses = sum(k.get("used_count", 0) for k in gift_keys.values())
+            
+            stats_text = f"""
+🎁 **GIFT KEY STATISTICS** 🎁
+
+📊 **Overview:**
+• Total Gift Keys: `{total_keys}`
+• Active Keys: `{active_keys}`
+• Expired Keys: `{expired_keys}`
+• Total Uses: `{total_uses}`
+
+📋 **Recent Gift Keys (Last 5):**
+"""
+            
+            # Show recent gift keys
+            sorted_keys = sorted(
+                gift_keys.items(),
+                key=lambda x: datetime.fromisoformat(x[1].get("generated_at", "2000-01-01")),
+                reverse=True
+            )
+            
+            for i, (key, data) in enumerate(sorted_keys[:5], 1):
+                expires = datetime.fromisoformat(data.get("expires_at", "2000-01-01"))
+                days_left = (expires - datetime.now()).days
+                status = "✅" if days_left > 0 and data.get("is_active", True) else "❌"
+                
+                stats_text += f"\n{i}. {status} `{key}`\n"
+                stats_text += f"   📦 {data.get('plan_name', 'N/A')}\n"
+                stats_text += f"   📥 {data.get('downloads', 0)} DL | 👥 {data.get('used_count', 0)}/{data.get('max_uses', 1)}\n"
+                stats_text += f"   📅 {days_left} days left\n"
+            
+            await query.edit_message_text(
+                stats_text,
+                reply_markup=get_back_button("admin_menu"),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # Common handlers
+        handlers = {
+            "main_menu": lambda: query.edit_message_text(
+                "🏠 **MAIN MENU**\nSelect an option:",
+                reply_markup=get_main_menu(),
+                parse_mode=ParseMode.MARKDOWN
+            ),
+            "download_menu": lambda: handle_url_download(update, context),
+            "buy_menu": lambda: query.edit_message_text(
+                "💰 **PURCHASE DOWNLOADS** 💰\n\n"
+                "**PLANS:**\n"
+                "• ₹10 → 5 downloads\n"
+                "• ₹40 → 40 downloads\n"
+                "• ₹100 → 150 downloads\n\n"
+                "**Select a plan:**",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=get_buy_menu()
+            ),
+            "my_stats": lambda: show_user_stats(update, context),
+            "download_history": lambda: show_download_history(update, context),
+            "activate_key_menu": lambda: handle_activate_key_menu(update, context),
+            "help": lambda: help_command(update, context),
+            "owner_info": lambda: query.edit_message_text(
+                f"👑 **BOT OWNER** 👑\n\n"
+                f"**Name:** {OWNER_NAME}\n"
+                f"**Username:** {OWNER_USERNAME}\n"
+                f"**ID:** `{OWNER_ID}`\n\n"
+                "📞 **Contact for:**\n"
+                "• Subscription keys\n"
+                "• Custom bot development\n"
+                "• Technical support",
+                reply_markup=get_main_menu(),
+                parse_mode=ParseMode.MARKDOWN
+            ),
+            "admin_menu": lambda: admin_command(update, context),
+            "quick_dl": lambda: query.edit_message_text(
+                "⚡ **QUICK DOWNLOAD**\n\n"
+                "This feature is coming soon!\n\n"
+                "For now, use URL download option.",
+                reply_markup=get_download_menu(),
+                parse_mode=ParseMode.MARKDOWN
+            ),
+            "admin_broadcast": lambda: handle_broadcast(update, context),
+            "admin_all_users": lambda: show_all_users(update, context, 0),
+            "admin_payments": lambda: handle_payments(update, context),
+            "admin_ban": lambda: handle_ban_user(update, context),
+            "admin_unban": lambda: handle_unban_user(update, context),
+            "admin_maintenance": lambda: toggle_maintenance(update, context),
+            "admin_stats": lambda: admin_command(update, context),
+            "admin_add": lambda: handle_add_admin(update, context),
+            "admin_remove": lambda: handle_remove_admin(update, context),
+            "admin_gen_key": lambda: handle_generate_key(update, context),
+            "admin_bulk_keys": lambda: handle_bulk_keys(update, context),
+            "admin_reply_user": lambda: handle_reply_user(update, context),
+            "admin_tickets": lambda: handle_admin_tickets(update, context),
+            "admin_reports": lambda: query.edit_message_text(
+                "📊 **USER REPORTS** 📊\n\n"
+                "This feature is coming soon!",
+                reply_markup=get_admin_menu(),
+                parse_mode=ParseMode.MARKDOWN
+            ),
+            "admin_groups": lambda: handle_groups_menu(update, context),
+            "admin_bonus_settings": lambda: handle_bonus_settings(update, context)
+        }
+        
+        if data in handlers:
+            return await handlers[data]()
+        
+        # Buy handlers
+        elif data.startswith("buy_"):
+            plan = data[4:]
+            plans = {
+                "basic": "₹10 → 5 downloads",
+                "pro": "₹40 → 40 downloads",
+                "premium": "₹100 → 150 downloads"
+            }
+            
+            if plan in plans:
+                await query.edit_message_text(
+                    f"🛒 **PLAN SELECTED: {plan.upper()}** 🛒\n\n"
+                    f"{plans[plan]}\n\n"
+                    f"**To purchase:**\n"
+                    f"1. Click VIEW QR CODE button\n"
+                    f"2. Scan QR code to pay\n"
+                    f"3. After payment, click SEND SCREENSHOT\n"
+                    f"4. Send payment screenshot\n"
+                    f"5. Wait for admin approval\n\n"
+                    f"**Your account will be activated automatically after approval**",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=create_qr_keyboard(plan)
+                )
+    except Exception as e:
+        logger.error(f"Error in callback handler: {e}")
+        try:
+            if update.callback_query:
+                await update.callback_query.answer("❌ An error occurred!", show_alert=True)
+        except:
+            pass
+
+async def handle_activate_key_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle activate key menu from callback"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        await query.edit_message_text(
+            "🔑 **ACTIVATE SUBSCRIPTION KEY** 🔑\n\n"
+            "Please send your subscription key:\n\n"
+            "**Example:**\n"
+            "`SYNAX-ABC12345`\n\n"
+            "**Or use command:**\n"
+            "`/activate YOUR_KEY_HERE`\n\n"
+            "Get keys from @synaxnetwork",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return AWAITING_KEY
+    except Exception as e:
+        logger.error(f"Error handling activate key menu: {e}")
+        await update.callback_query.answer("❌ Error loading form!", show_alert=True)
+        return ConversationHandler.END
+
+# Additional handlers for admin functions
 async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle broadcast from callback - Enhanced"""
     try:
@@ -2122,147 +3192,6 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error handling broadcast: {e}")
         await query.answer("❌ Error loading broadcast!", show_alert=True)
 
-# ===================== BULK KEY GENERATION (FIXED) =====================
-async def handle_bulk_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle bulk key generation from callback - FIXED"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
-            return
-        
-        await query.edit_message_text(
-            "🔑 **BULK KEY GENERATION** 🔑\n\n"
-            "Select plan for bulk key generation:",
-            reply_markup=get_bulk_key_form(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    except Exception as e:
-        logger.error(f"Error handling bulk keys: {e}")
-        await query.answer("❌ Error loading bulk keys!", show_alert=True)
-
-async def handle_bulk_key_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle bulk key generation form - FIXED"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
-            return
-        
-        plan = query.data.replace("bulk_form_", "")
-        plan_details = {
-            "basic": {"downloads": 5, "name": "BASIC"},
-            "pro": {"downloads": 40, "name": "PRO"},
-            "premium": {"downloads": 150, "name": "PREMIUM"}
-        }
-        
-        if plan in plan_details:
-            context.user_data['bulk_plan'] = plan
-            context.user_data['bulk_downloads'] = plan_details[plan]['downloads']
-            
-            await query.edit_message_text(
-                f"🔑 **BULK KEY GENERATION - {plan_details[plan]['name']} PLAN** 🔑\n\n"
-                f"Plan: {plan_details[plan]['name']} ({plan_details[plan]['downloads']} downloads)\n\n"
-                f"Please reply with:\n"
-                f"`bulkgen <count> <days>`\n\n"
-                f"Example: `bulkgen 10 30` (Generate 10 keys valid for 30 days)",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            context.user_data['awaiting_bulkgen'] = True
-    except Exception as e:
-        logger.error(f"Error handling bulk key form: {e}")
-        await query.answer("❌ Error loading form!", show_alert=True)
-
-async def process_bulk_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process bulk key generation - FIXED"""
-    try:
-        user_id = update.effective_user.id
-        message_text = update.message.text
-        
-        if not context.user_data.get('awaiting_bulkgen'):
-            return
-        
-        parts = message_text.strip().split()
-        if len(parts) >= 3 and parts[0].lower() == "bulkgen":
-            try:
-                count = int(parts[1])
-                days = int(parts[2])
-                plan = context.user_data.get('bulk_plan', 'premium')
-                downloads = context.user_data.get('bulk_downloads', 100)
-                
-                if count <= 0 or count > 100:
-                    await update.message.reply_text("❌ **Invalid count!** Please specify 1-100 keys.")
-                    return
-                
-                if days <= 0 or days > 365:
-                    await update.message.reply_text("❌ **Invalid days!** Please specify 1-365 days.")
-                    return
-                
-                # Generate keys
-                keys = generate_bulk_keys(count, plan, days, downloads, user_id)
-                
-                if not keys:
-                    await update.message.reply_text("❌ Error generating keys. Please try again.")
-                    return
-                
-                # Create file with keys
-                batch_id = f"BATCH-{random.randint(10000, 99999)}"
-                file_content = f"SYNAX BOT - {plan.upper()} KEYS\n"
-                file_content += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                file_content += f"Plan: {plan.upper()} ({downloads} downloads, {days} days)\n"
-                file_content += f"Generated by: {user_id}\n"
-                file_content += f"Batch ID: {batch_id}\n"
-                file_content += "=" * 50 + "\n\n"
-                
-                for key in keys:
-                    file_content += f"{key}\n"
-                
-                # Create file in memory
-                file_buffer = io.BytesIO()
-                file_buffer.write(file_content.encode('utf-8'))
-                file_buffer.seek(0)
-                
-                # Send file
-                await update.message.reply_document(
-                    document=file_buffer,
-                    filename=f"{plan.upper()}_KEYS_{batch_id}.txt",
-                    caption=f"✅ **BULK KEYS GENERATED** ✅\n\n"
-                            f"Plan: {plan.upper()}\n"
-                            f"Count: {count}\n"
-                            f"Downloads per key: {downloads}\n"
-                            f"Validity: {days} days\n"
-                            f"Batch ID: {batch_id}",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-                
-                # Reset state
-                context.user_data['awaiting_bulkgen'] = False
-                context.user_data.pop('bulk_plan', None)
-                context.user_data.pop('bulk_downloads', None)
-                
-            except ValueError:
-                await update.message.reply_text(
-                    "❌ **Invalid format!**\n\n"
-                    "Usage: `bulkgen <count> <days>`\n"
-                    "Example: `bulkgen 10 30`",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-        else:
-            await update.message.reply_text(
-                "❌ **Invalid format!**\n\n"
-                "Usage: `bulkgen <count> <days>`\n"
-                "Example: `bulkgen 10 30`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    except Exception as e:
-        logger.error(f"Error processing bulk generation: {e}")
-        await update.message.reply_text("❌ Error generating bulk keys.")
-
-# ===================== PAYMENT APPROVAL SYSTEM (NEW) =====================
 async def handle_payments(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle payments approval from callback - Enhanced"""
     try:
@@ -2340,87 +3269,8 @@ async def handle_payments(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error handling payments: {e}")
         await query.answer("❌ Error loading payments!", show_alert=True)
 
-async def handle_approve_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle payment approval - Enhanced"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
-            return
-        
-        # Extract payment_id from callback_data
-        payment_id = query.data.replace("approve_payment_", "")
-        
-        # Approve payment
-        result = approve_payment(payment_id, user_id)
-        
-        if result["success"]:
-            payment_data = result["data"]
-            user_id_payment = payment_data["user_id"]
-            downloads = result["downloads"]
-            
-            # Notify user
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id_payment,
-                    text=f"✅ **PAYMENT APPROVED!** ✅\n\n"
-                         f"Your payment for {payment_data['plan'].upper()} plan has been approved!\n\n"
-                         f"🎁 **You've received:**\n"
-                         f"• ⬇️ Downloads: {downloads}\n"
-                         f"• 📅 Validity: 30 days\n\n"
-                         f"🎉 Thank you for choosing SYNAX!",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except Exception as e:
-                logger.warning(f"Could not notify user {user_id_payment}: {e}")
-            
-            # Confirm to admin
-            await query.edit_message_text(
-                f"✅ **PAYMENT APPROVED!**\n\n"
-                f"Payment ID: `{payment_id}`\n"
-                f"User ID: `{user_id_payment}`\n"
-                f"Downloads Given: {downloads}\n\n"
-                f"User has been notified!",
-                reply_markup=get_admin_menu(),
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            await query.answer("❌ Error approving payment!", show_alert=True)
-    except Exception as e:
-        logger.error(f"Error approving payment: {e}")
-        await query.answer("❌ Error approving payment!", show_alert=True)
-
-async def handle_reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle payment rejection - Enhanced"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
-            return
-        
-        # Extract payment_id from callback_data
-        payment_id = query.data.replace("reject_payment_", "")
-        
-        # Ask for rejection reason
-        await query.edit_message_text(
-            f"❌ **REJECT PAYMENT** ❌\n\n"
-            f"Payment ID: `{payment_id}`\n\n"
-            "Please reply with rejection reason:\n"
-            "Format: `reject_reason <your reason>`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        context.user_data['awaiting_reject_reason'] = payment_id
-    except Exception as e:
-        logger.error(f"Error rejecting payment: {e}")
-        await query.answer("❌ Error rejecting payment!", show_alert=True)
-
-# ===================== REPLY TO USER (SYNAX System) =====================
-async def handle_reply_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle reply to user - Enhanced"""
+async def handle_ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle ban user from callback"""
     try:
         query = update.callback_query
         user_id = update.effective_user.id
@@ -2430,18 +3280,106 @@ async def handle_reply_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         await query.edit_message_text(
-            "↩️ **REPLY TO USER**\n\n"
-            "Please reply with:\n"
-            "`reply <user_id> <message>`\n\n"
-            "Example: `reply 1234567890 Hello! How can I help you?`",
+            "🚫 **BAN USER**\n\n"
+            "Please reply with the user ID to ban:\n"
+            "Format: `ban <user_id> <reason>`\n\n"
+            "Example: `ban 1234567890 Spamming`",
             parse_mode=ParseMode.MARKDOWN
         )
-        context.user_data['awaiting_reply'] = True
+        context.user_data['awaiting_ban'] = True
     except Exception as e:
-        logger.error(f"Error handling reply user: {e}")
-        await query.answer("❌ Error loading reply form!", show_alert=True)
+        logger.error(f"Error handling ban user: {e}")
+        await query.answer("❌ Error loading form!", show_alert=True)
 
-# ===================== GENERATE KEY FROM CALLBACK (SYNAX System) =====================
+async def handle_unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle unban user from callback"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await query.answer("❌ Admin Only!", show_alert=True)
+            return
+        
+        await query.edit_message_text(
+            "✅ **UNBAN USER**\n\n"
+            "Please reply with the user ID to unban:\n"
+            "Format: `unban <user_id>`\n\n"
+            "Example: `unban 1234567890`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        context.user_data['awaiting_unban'] = True
+    except Exception as e:
+        logger.error(f"Error handling unban user: {e}")
+        await query.answer("❌ Error loading form!", show_alert=True)
+
+async def toggle_maintenance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Toggle maintenance mode - Enhanced"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        if not is_admin(user_id):
+            await query.answer("❌ Admin Only!", show_alert=True)
+            return
+        
+        settings_db['maintenance'] = not settings_db.get('maintenance', False)
+        save_json(SETTINGS_FILE, settings_db)
+        status = "✅ ON" if settings_db['maintenance'] else "❌ OFF"
+        await query.edit_message_text(
+            f"⚙️ **MAINTENANCE MODE:** {status}\n\n"
+            f"Bot is now {'under maintenance' if settings_db['maintenance'] else 'operational'}.",
+            reply_markup=get_admin_menu(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        logger.error(f"Error toggling maintenance: {e}")
+        await query.answer("❌ Error toggling maintenance!", show_alert=True)
+
+async def handle_add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle add admin from callback"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        if not is_owner(user_id):
+            await query.answer("❌ Owner Only!", show_alert=True)
+            return
+        
+        await query.edit_message_text(
+            "🔧 **ADD ADMIN**\n\n"
+            "Please reply with the user ID to make admin:\n"
+            "Format: `addadmin <user_id>`\n\n"
+            "Example: `addadmin 1234567890`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        context.user_data['awaiting_addadmin'] = True
+    except Exception as e:
+        logger.error(f"Error handling add admin: {e}")
+        await query.answer("❌ Error loading form!", show_alert=True)
+
+async def handle_remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle remove admin from callback"""
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        if not is_owner(user_id):
+            await query.answer("❌ Owner Only!", show_alert=True)
+            return
+        
+        await query.edit_message_text(
+            "🗑️ **REMOVE ADMIN**\n\n"
+            "Please reply with the user ID to remove as admin:\n"
+            "Format: `removeadmin <user_id>`\n\n"
+            "Example: `removeadmin 1234567890`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        context.user_data['awaiting_removeadmin'] = True
+    except Exception as e:
+        logger.error(f"Error handling remove admin: {e}")
+        await query.answer("❌ Error loading form!", show_alert=True)
+
 async def handle_generate_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle generate key from callback - Enhanced"""
     try:
@@ -2468,9 +3406,8 @@ async def handle_generate_key(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.error(f"Error handling generate key: {e}")
         await query.answer("❌ Error loading key generator!", show_alert=True)
 
-# ===================== BONUS SETTINGS HANDLERS (NEW) =====================
-async def handle_bonus_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle bonus settings from callback - NEW"""
+async def handle_bulk_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle bulk key generation from callback"""
     try:
         query = update.callback_query
         user_id = update.effective_user.id
@@ -2480,20 +3417,17 @@ async def handle_bonus_settings(update: Update, context: ContextTypes.DEFAULT_TY
             return
         
         await query.edit_message_text(
-            f"🎁 **BONUS SETTINGS** 🎁\n\n"
-            f"Current Settings:\n"
-            f"• Welcome Bonus: `{bonus_settings_db.get('welcome_bonus', 5)}` downloads\n"
-            f"• Referral Bonus: `{bonus_settings_db.get('referral_bonus', 5)}` downloads\n\n"
-            f"Select an option to modify:",
-            reply_markup=get_bonus_settings_menu(),
+            "🔑 **BULK KEY GENERATION** 🔑\n\n"
+            "Select plan for bulk key generation:",
+            reply_markup=get_bulk_key_form(),
             parse_mode=ParseMode.MARKDOWN
         )
     except Exception as e:
-        logger.error(f"Error handling bonus settings: {e}")
-        await query.answer("❌ Error loading bonus settings!", show_alert=True)
+        logger.error(f"Error handling bulk keys: {e}")
+        await query.answer("❌ Error loading bulk keys!", show_alert=True)
 
-async def handle_set_welcome_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle set welcome bonus from callback - NEW"""
+async def handle_reply_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle reply to user - Enhanced"""
     try:
         query = update.callback_query
         user_id = update.effective_user.id
@@ -2503,416 +3437,16 @@ async def handle_set_welcome_bonus(update: Update, context: ContextTypes.DEFAULT
             return
         
         await query.edit_message_text(
-            f"🎁 **SET WELCOME BONUS** 🎁\n\n"
-            f"Current: `{bonus_settings_db.get('welcome_bonus', 5)}` downloads\n\n"
-            f"Please reply with:\n"
-            f"`set_welcome_bonus <amount>`\n\n"
-            f"Example: `set_welcome_bonus 10`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        context.user_data['awaiting_welcome_bonus'] = True
-    except Exception as e:
-        logger.error(f"Error handling set welcome bonus: {e}")
-        await query.answer("❌ Error loading form!", show_alert=True)
-
-async def handle_set_referral_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle set referral bonus from callback - NEW"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
-            return
-        
-        await query.edit_message_text(
-            f"👥 **SET REFERRAL BONUS** 👥\n\n"
-            f"Current: `{bonus_settings_db.get('referral_bonus', 5)}` downloads\n\n"
-            f"Please reply with:\n"
-            f"`set_referral_bonus <amount>`\n\n"
-            f"Example: `set_referral_bonus 10`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        context.user_data['awaiting_referral_bonus'] = True
-    except Exception as e:
-        logger.error(f"Error handling set referral bonus: {e}")
-        await query.answer("❌ Error loading form!", show_alert=True)
-
-async def handle_give_bonus_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle give bonus form from callback - NEW"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
-            return
-        
-        await query.edit_message_text(
-            f"🎁 **GIVE BONUS** 🎁\n\n"
-            f"Please reply with:\n"
-            f"`give_bonus <user_id> <type> <amount> <reason>`\n\n"
-            f"Types: `downloads` or `points`\n\n"
-            f"Example: `give_bonus 1234567890 downloads 10 Special bonus`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        context.user_data['awaiting_give_bonus'] = True
-    except Exception as e:
-        logger.error(f"Error handling give bonus form: {e}")
-        await query.answer("❌ Error loading form!", show_alert=True)
-
-# ===================== GROUP MANAGEMENT HANDLERS =====================
-async def handle_groups_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle groups menu from callback"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
-            return
-        
-        await query.edit_message_text(
-            "👥 **GROUP MANAGEMENT** 👥\n\n"
-            "Manage group activation for unlimited downloads.",
-            reply_markup=get_groups_menu(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    except Exception as e:
-        logger.error(f"Error handling groups menu: {e}")
-        await query.answer("❌ Error loading groups menu!", show_alert=True)
-
-async def handle_activate_group_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle activate group form from callback"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
-            return
-        
-        await query.edit_message_text(
-            "➕ **ACTIVATE GROUP** ➕\n\n"
+            "↩️ **REPLY TO USER**\n\n"
             "Please reply with:\n"
-            "`activategroup <group_id> <days>`\n\n"
-            "Example: `activategroup -123456789 30`\n\n"
-            "Note: Group ID starts with -100 for supergroups",
+            "`reply <user_id> <message>`\n\n"
+            "Example: `reply 1234567890 Hello! How can I help you?`",
             parse_mode=ParseMode.MARKDOWN
         )
-        context.user_data['awaiting_activategroup'] = True
+        context.user_data['awaiting_reply'] = True
     except Exception as e:
-        logger.error(f"Error handling activate group form: {e}")
-        await query.answer("❌ Error loading form!", show_alert=True)
-
-async def handle_deactivate_group_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle deactivate group form from callback"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
-            return
-        
-        await query.edit_message_text(
-            "➖ **DEACTIVATE GROUP** ➖\n\n"
-            "Please reply with:\n"
-            "`deactivategroup <group_id>`\n\n"
-            "Example: `deactivategroup -123456789`\n\n"
-            "Note: Group ID starts with -100 for supergroups",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        context.user_data['awaiting_deactivategroup'] = True
-    except Exception as e:
-        logger.error(f"Error handling deactivate group form: {e}")
-        await query.answer("❌ Error loading form!", show_alert=True)
-
-async def handle_active_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle active groups from callback"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
-            return
-        
-        active_groups = get_active_groups()
-        
-        if not active_groups:
-            await query.edit_message_text(
-                "📋 **ACTIVE GROUPS** 📋\n\n"
-                "No active groups found.",
-                reply_markup=get_groups_menu(),
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        groups_text = "📋 **ACTIVE GROUPS** 📋\n\n"
-        
-        for group in active_groups:
-            group_id = group["group_id"]
-            expiry_date = datetime.fromisoformat(group["expires_at"]).strftime('%d %b %Y')
-            activated_date = datetime.fromisoformat(group["activated_at"]).strftime('%d %b %Y')
-            
-            # Try to get group info
-            group_name = "Unknown Group"
-            try:
-                chat = await context.bot.get_chat(group_id)
-                group_name = chat.title
-            except:
-                pass
-            
-            groups_text += f"📋 **{group_name}**\n"
-            groups_text += f"• ID: `{group_id}`\n"
-            groups_text += f"• Activated: {activated_date}\n"
-            groups_text += f"• Expires: {expiry_date}\n"
-            groups_text += f"• Status: {group['status'].upper()}\n\n"
-        
-        await query.edit_message_text(
-            groups_text,
-            reply_markup=get_groups_menu(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    except Exception as e:
-        logger.error(f"Error handling active groups: {e}")
-        await query.answer("❌ Error loading groups!", show_alert=True)
-
-# ===================== URL DOWNLOAD =====================
-async def handle_url_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle URL download - Enhanced"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        await query.edit_message_text(
-            "🌐 **URL DOWNLOAD**\n\n"
-            "Simply send me any website URL starting with http:// or https://\n\n"
-            "**Example:**\n"
-            "`https://example.com`\n"
-            "`http://test-site.org`\n\n"
-            "**Note:** You need downloads balance to use this feature.",
-            reply_markup=get_download_menu(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return AWAITING_URL
-    except Exception as e:
-        logger.error(f"Error handling URL download: {e}")
-        await query.answer("❌ Error loading download form!", show_alert=True)
-        return ConversationHandler.END
-
-async def process_url_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process URL download - Enhanced"""
-    try:
-        user_id = update.effective_user.id
-        message_text = update.message.text
-        user_data = get_user_stats(user_id)
-        
-        # Check maintenance
-        if settings_db.get("maintenance"):
-            await update.message.reply_text("🔧 **Bot is under maintenance. Please try later.**")
-            return ConversationHandler.END
-        
-        # Check ban status
-        if user_data.get("is_banned"):
-            await update.message.reply_text("🚫 **Your account is banned!**")
-            return ConversationHandler.END
-        
-        # Check if user is in an activated group
-        group_unlimited = False
-        if update.message.chat.type in [Chat.GROUP, Chat.SUPERGROUP]:
-            if is_group_active(update.message.chat.id):
-                group_unlimited = True
-        
-        # Check downloads
-        if user_data["downloads_left"] <= 0 and not is_owner(user_id) and not group_unlimited:
-            await update.message.reply_text(
-                "❌ **No downloads left!**\nUse BUY button to purchase more.",
-                reply_markup=get_buy_menu()
-            )
-            return ConversationHandler.END
-        
-        # Clean URL
-        url = clean_url(message_text)
-        context.user_data['download_url'] = url
-        
-        # Ask for download type
-        await update.message.reply_text(
-            f"🌐 **Website URL Received**\n\n{url}\n\nPlease choose download type:",
-            reply_markup=get_download_type_keyboard(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return AWAITING_DOWNLOAD_TYPE
-    except Exception as e:
-        logger.error(f"Error processing URL download: {e}")
-        await update.message.reply_text("❌ Error processing URL.")
-        return ConversationHandler.END
-
-async def process_download(update: Update, context: ContextTypes.DEFAULT_TYPE, download_type: str):
-    """Process the actual download - Enhanced"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        user_data = get_user_stats(user_id)
-        
-        url = context.user_data.get('download_url')
-        if not url:
-            await query.answer("❌ No URL found!", show_alert=True)
-            return ConversationHandler.END
-        
-        # Check if user is in an activated group
-        group_unlimited = False
-        if query.message.chat.type in [Chat.GROUP, Chat.SUPERGROUP]:
-            if is_group_active(query.message.chat.id):
-                group_unlimited = True
-        
-        await query.answer()
-        await query.edit_message_text(f"⏳ **Starting {download_type.upper()} download...**")
-        
-        # Download and create zip
-        zip_buffer, file_count = create_direct_zip(url, download_type)
-        
-        file_size = zip_buffer.getbuffer().nbytes
-        file_size_mb = file_size / 1024 / 1024
-        
-        if file_size > MAX_FILE_SIZE:
-            await query.edit_message_text(
-                f"❌ **File Too Large**\n\nSize: {file_size_mb:.1f}MB\nLimit: 50MB\n\nTry partial download instead."
-            )
-            return ConversationHandler.END
-        
-        # Create filename
-        domain = url.replace("https://", "").replace("http://", "").split("/")[0]
-        filename = f"{domain}_{download_type}_{int(time.time())}.zip"
-        
-        # Send file
-        await query.edit_message_text("📤 Sending file...")
-        
-        caption = f"""
-✅ **Website Source Downloaded!**
-
-**Details:**
-• Website: {url}
-• Type: {download_type.upper()} Download
-• File Size: {file_size_mb:.2f} MB
-• Files: {file_count}
-
-Made By 💤 SYNAX Network 💤
-Admin: {OWNER_USERNAME}
-{PROMOTION_CHANNEL}
-{PROMOTION_GROUPS[0]}
-"""
-        
-        await context.bot.send_document(
-            chat_id=query.message.chat_id,
-            document=zip_buffer,
-            filename=filename,
-            caption=caption,
-            parse_mode=ParseMode.MARKDOWN
-        )
-        
-        # Update user stats
-        if not is_owner(user_id) and not group_unlimited:
-            user_data["downloads_left"] -= 1
-        user_data["total_downloads"] += 1
-        users_db[str(user_id)] = user_data
-        save_json(USERS_FILE, users_db)
-        
-        # Add to download history
-        add_download_history(user_id, url, file_size, file_count)
-        
-        await query.edit_message_text(f"✅ **Done!** File sent successfully.\n\nFiles: {file_count}\nSize: {file_size_mb:.1f}MB")
-        return ConversationHandler.END
-        
-    except Exception as e:
-        logger.error(f"Download error: {e}")
-        try:
-            await query.edit_message_text(
-                f"❌ **Error**\n\n{str(e)[:200]}",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        except:
-            pass
-        return ConversationHandler.END
-
-# ===================== SUPPORT SYSTEM =====================
-async def handle_support_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle support menu from callback"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not settings_db.get("support_system", True):
-            await query.answer("❌ Support system is disabled!", show_alert=True)
-            return
-        
-        await query.edit_message_text(
-            "🎫 **SUPPORT SYSTEM** 🎫\n\n"
-            "Our support team is here to help you!\n\n"
-            "Choose an option below:",
-            reply_markup=get_support_menu(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    except Exception as e:
-        logger.error(f"Error handling support menu: {e}")
-        await query.answer("❌ Error loading support!", show_alert=True)
-
-async def handle_create_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle create ticket from callback"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        await query.edit_message_text(
-            "📝 **CREATE SUPPORT TICKET** 📝\n\n"
-            "Please describe your issue in detail.\n\n"
-            "Reply with your message to create a ticket.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        context.user_data['awaiting_ticket'] = True
-    except Exception as e:
-        logger.error(f"Error handling create ticket: {e}")
-        await query.answer("❌ Error loading ticket form!", show_alert=True)
-
-async def handle_my_tickets(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle my tickets from callback"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        # Get user's tickets
-        user_tickets = [t for t in tickets_db.values() if t.get('user_id') == user_id]
-        
-        if not user_tickets:
-            await query.edit_message_text(
-                "📋 **MY TICKETS** 📋\n\n"
-                "You haven't created any tickets yet.",
-                reply_markup=get_support_menu(),
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        tickets_text = "📋 **MY TICKETS** 📋\n\n"
-        
-        for ticket in sorted(user_tickets, key=lambda x: x.get('created_at', ''), reverse=True)[:5]:
-            ticket_id = ticket['ticket_id']
-            status = ticket.get('status', 'unknown').upper()
-            created_at = datetime.fromisoformat(ticket['created_at']).strftime('%d %b, %I:%M %p')
-            
-            tickets_text += f"🎫 **Ticket ID:** {ticket_id}\n"
-            tickets_text += f"📅 **Created:** {created_at}\n"
-            tickets_text += f"📊 **Status:** {status}\n"
-            tickets_text += f"💬 **Message:** {ticket.get('message', '')[:50]}...\n\n"
-        
-        await query.edit_message_text(
-            tickets_text,
-            reply_markup=get_support_menu(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    except Exception as e:
-        logger.error(f"Error handling my tickets: {e}")
-        await query.answer("❌ Error loading tickets!", show_alert=True)
+        logger.error(f"Error handling reply user: {e}")
+        await query.answer("❌ Error loading reply form!", show_alert=True)
 
 async def handle_admin_tickets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle admin tickets from callback"""
@@ -2978,8 +3512,8 @@ async def handle_admin_tickets(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Error handling admin tickets: {e}")
         await query.answer("❌ Error loading tickets!", show_alert=True)
 
-async def handle_reply_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle reply to ticket from callback"""
+async def handle_groups_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle groups menu from callback"""
     try:
         query = update.callback_query
         user_id = update.effective_user.id
@@ -2988,24 +3522,18 @@ async def handle_reply_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.answer("❌ Admin Only!", show_alert=True)
             return
         
-        # Extract ticket_id from callback_data
-        ticket_id = query.data.replace("reply_ticket_", "")
-        
-        # Ask for reply message
         await query.edit_message_text(
-            f"💬 **REPLY TO TICKET** 💬\n\n"
-            f"Ticket ID: `{ticket_id}`\n\n"
-            "Please reply with your message:\n"
-            "Format: `ticket_reply <your message>`",
+            "👥 **GROUP MANAGEMENT** 👥\n\n"
+            "Manage group activation for unlimited downloads.",
+            reply_markup=get_groups_menu(),
             parse_mode=ParseMode.MARKDOWN
         )
-        context.user_data['awaiting_ticket_reply'] = ticket_id
     except Exception as e:
-        logger.error(f"Error handling reply ticket: {e}")
-        await query.answer("❌ Error loading reply form!", show_alert=True)
+        logger.error(f"Error handling groups menu: {e}")
+        await query.answer("❌ Error loading groups menu!", show_alert=True)
 
-async def handle_close_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle close ticket from callback"""
+async def handle_bonus_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle bonus settings from callback"""
     try:
         query = update.callback_query
         user_id = update.effective_user.id
@@ -3014,455 +3542,22 @@ async def handle_close_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.answer("❌ Admin Only!", show_alert=True)
             return
         
-        # Extract ticket_id from callback_data
-        ticket_id = query.data.replace("close_ticket_", "")
-        
-        # Close ticket
-        result = close_ticket(ticket_id, user_id)
-        
-        if result["success"]:
-            ticket = result["data"]
-            ticket_user_id = ticket['user_id']
-            
-            # Notify user
-            try:
-                await context.bot.send_message(
-                    chat_id=ticket_user_id,
-                    text=f"✅ **TICKET CLOSED** ✅\n\n"
-                         f"Your support ticket ({ticket_id}) has been closed.\n\n"
-                         f"If you still need help, please create a new ticket.",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except Exception as e:
-                logger.warning(f"Could not notify user {ticket_user_id}: {e}")
-            
-            # Confirm to admin
-            await query.edit_message_text(
-                f"✅ **TICKET CLOSED**\n\n"
-                f"Ticket ID: `{ticket_id}`\n"
-                f"User has been notified!",
-                reply_markup=get_admin_menu(),
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            await query.answer("❌ Error closing ticket!", show_alert=True)
-    except Exception as e:
-        logger.error(f"Error closing ticket: {e}")
-        await query.answer("❌ Error closing ticket!", show_alert=True)
-
-# ===================== REFERRAL SYSTEM =====================
-async def handle_referral_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle referral menu from callback"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not settings_db.get("referral_system", True):
-            await query.answer("❌ Referral system is disabled!", show_alert=True)
-            return
-        
         await query.edit_message_text(
-            "👥 **REFERRAL SYSTEM** 👥\n\n"
-            "Invite friends and earn downloads!\n\n"
-            f"You get {bonus_settings_db.get('referral_bonus', 5)} downloads for each friend who joins.",
-            reply_markup=get_referral_menu(),
+            f"🎁 **BONUS SETTINGS** 🎁\n\n"
+            f"Current Settings:\n"
+            f"• Welcome Bonus: `{bonus_settings_db.get('welcome_bonus', 5)}` downloads\n"
+            f"• Referral Bonus: `{bonus_settings_db.get('referral_bonus', 5)}` downloads\n\n"
+            f"Select an option to modify:",
+            reply_markup=get_bonus_settings_menu(),
             parse_mode=ParseMode.MARKDOWN
         )
     except Exception as e:
-        logger.error(f"Error handling referral menu: {e}")
-        await query.answer("❌ Error loading referral!", show_alert=True)
-
-async def handle_my_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle my referral from callback"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        referral_link = f"https://t.me/{context.bot.username}?start=ref_{user_id}"
-        user_data = get_user_stats(user_id)
-        referral_count = user_data.get('referral_count', 0)
-        
-        referral_text = f"""
-🔗 **MY REFERRAL LINK** 🔗
-
-📊 **STATISTICS:**
-• Referrals: `{referral_count}`
-• Reward per referral: `{bonus_settings_db.get('referral_bonus', 5)} downloads`
-
-🔗 **YOUR LINK:**
-`{referral_link}`
-
-📝 **HOW TO USE:**
-1. Share this link with friends
-2. When they join using your link
-3. You'll automatically get downloads
-
-🎁 **BONUS:** Get 5 extra downloads for every 10 referrals!
-    """
-        
-        await query.edit_message_text(
-            referral_text,
-            reply_markup=get_referral_menu(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    except Exception as e:
-        logger.error(f"Error handling my referral: {e}")
-        await query.answer("❌ Error loading referral!", show_alert=True)
-
-async def handle_my_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle my referrals from callback"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        # Get users referred by this user
-        referred_users = [u for u in users_db.values() if u.get('referred_by') == user_id]
-        
-        if not referred_users:
-            await query.edit_message_text(
-                "👥 **MY REFERRALS** 👥\n\n"
-                "You haven't referred anyone yet.\n\n"
-                "Share your referral link to start earning!",
-                reply_markup=get_referral_menu(),
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        referrals_text = "👥 **MY REFERRALS** 👥\n\n"
-        
-        for user in referred_users[:10]:  # Show only first 10
-            user_id = user['id']
-            username = user.get('username', 'N/A')
-            first_name = user.get('first_name', '')
-            joined_date = datetime.fromisoformat(user['joined_date']).strftime('%d %b %Y')
-            
-            referrals_text += f"👤 **User:** @{username} | {first_name}\n"
-            referrals_text += f"🆔 **ID:** `{user_id}`\n"
-            referrals_text += f"📅 **Joined:** {joined_date}\n\n"
-        
-        await query.edit_message_text(
-            referrals_text,
-            reply_markup=get_referral_menu(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    except Exception as e:
-        logger.error(f"Error handling my referrals: {e}")
-        await query.answer("❌ Error loading referrals!", show_alert=True)
-
-# ===================== CALLBACK QUERY HANDLER =====================
-async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button callbacks - Enhanced"""
-    try:
-        query = update.callback_query
-        await query.answer()
-        
-        user_id = update.effective_user.id
-        data = query.data
-        
-        # Users pagination
-        if data.startswith("users_page_"):
-            try:
-                page = int(data.split("_")[2])
-                await show_all_users(update, context, page)
-            except:
-                await query.answer("Error loading page!", show_alert=True)
-            return
-        
-        # Download type handlers
-        if data == "full_download":
-            return await process_download(update, context, "full")
-        elif data == "partial_download":
-            return await process_download(update, context, "partial")
-        
-        # Key generation handlers
-        elif data.startswith("genkey_"):
-            plan = data[7:]
-            if plan in ["basic", "pro", "premium"]:
-                downloads = 100
-                if plan == "basic":
-                    downloads = 5
-                elif plan == "pro":
-                    downloads = 40
-                
-                key = generate_key(plan, 30, downloads)
-                if key:
-                    await query.edit_message_text(
-                        f"🔑 **KEY GENERATED** 🔑\n\n"
-                        f"Key: `{key}`\n"
-                        f"Plan: {plan.upper()}\n"
-                        f"Downloads: {downloads}\n"
-                        f"Days: 30\n\n"
-                        f"**Send to user:**\n"
-                        f"`/activate {key}`",
-                        reply_markup=get_back_button("admin_menu"),
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-                else:
-                    await query.edit_message_text(
-                        "❌ Error generating key!",
-                        reply_markup=get_back_button("admin_menu"),
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-            return
-        
-        # Bulk key generation handlers - FIXED
-        elif data.startswith("bulk_form_"):
-            return await handle_bulk_key_form(update, context)
-        
-        # Payment approval handlers
-        elif data.startswith("approve_payment_"):
-            return await handle_approve_payment(update, context)
-        elif data.startswith("reject_payment_"):
-            return await handle_reject_payment(update, context)
-        
-        # Support system handlers
-        elif data == "support_menu":
-            return await handle_support_menu(update, context)
-        elif data == "create_ticket":
-            return await handle_create_ticket(update, context)
-        elif data == "my_tickets":
-            return await handle_my_tickets(update, context)
-        elif data == "admin_tickets":
-            return await handle_admin_tickets(update, context)
-        elif data.startswith("reply_ticket_"):
-            return await handle_reply_ticket(update, context)
-        elif data.startswith("close_ticket_"):
-            return await handle_close_ticket(update, context)
-        
-        # Referral system handlers
-        elif data == "referral_menu":
-            return await handle_referral_menu(update, context)
-        elif data == "my_referral":
-            return await handle_my_referral(update, context)
-        elif data == "my_referrals":
-            return await handle_my_referrals(update, context)
-        
-        # Group management handlers
-        elif data == "admin_groups":
-            return await handle_groups_menu(update, context)
-        elif data == "activate_group_form":
-            return await handle_activate_group_form(update, context)
-        elif data == "deactivate_group_form":
-            return await handle_deactivate_group_form(update, context)
-        elif data == "active_groups":
-            return await handle_active_groups(update, context)
-        
-        # Bonus settings handlers - NEW
-        elif data == "admin_bonus_settings":
-            return await handle_bonus_settings(update, context)
-        elif data == "set_welcome_bonus":
-            return await handle_set_welcome_bonus(update, context)
-        elif data == "set_referral_bonus":
-            return await handle_set_referral_bonus(update, context)
-        elif data == "give_bonus_form":
-            return await handle_give_bonus_form(update, context)
-        
-        # QR Code handlers
-        elif data.startswith("qr_"):
-            plan = data[3:]
-            plan_details = {
-                "basic": {"price": 10, "downloads": 5},
-                "pro": {"price": 40, "downloads": 40},
-                "premium": {"price": 100, "downloads": 150}
-            }
-            
-            if plan in plan_details:
-                details = plan_details[plan]
-                
-                # Create payment record
-                payment_id = create_payment(user_id, plan, details['price'])
-                
-                if payment_id:
-                    # Send QR code image
-                    await context.bot.send_photo(
-                        chat_id=query.message.chat_id,
-                        photo=QR_CODE_URL,
-                        caption=f"📱 **QR CODE FOR {plan.upper()} PLAN**\n\n"
-                               f"**Amount:** ₹{details['price']}\n"
-                               f"**Plan:** {plan.upper()}\n"
-                               f"**Downloads:** {details['downloads']}\n"
-                               f"**Payment ID:** {payment_id}\n\n"
-                               f"**Instructions:**\n"
-                               f"1. Scan QR code\n"
-                               f"2. Pay ₹{details['price']}\n"
-                               f"3. Take screenshot\n"
-                               f"4. Send Screenshot Now",
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-                    
-                    await query.answer("✅ QR Code sent!")
-                else:
-                    await query.answer("❌ Error creating payment!", show_alert=True)
-            return
-        
-        # Screenshot handlers
-        elif data.startswith("screenshot_"):
-            plan = data[11:]
-            plan_details = {
-                "basic": {"price": 10},
-                "pro": {"price": 40},
-                "premium": {"price": 100}
-            }
-            
-            if plan in plan_details:
-                await query.edit_message_text(
-                    f"📸 **SEND PAYMENT SCREENSHOT**\n\n"
-                    f"**Plan:** {plan.upper()}\n"
-                    f"**Amount Paid:** ₹{plan_details[plan]['price']}\n\n"
-                    f"**Next Steps:**\n"
-                    f"1. Send payment screenshot\n"
-                    f"2. Wait for admin approval\n"
-                    f"3. Your account will be activated automatically\n\n"
-                    f"**Your downloads will be added within 24 hours**",
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=get_main_menu()
-                )
-            return
-        
-        # Common handlers
-        handlers = {
-            "main_menu": lambda: query.edit_message_text(
-                "🏠 **MAIN MENU**\nSelect an option:",
-                reply_markup=get_main_menu(),
-                parse_mode=ParseMode.MARKDOWN
-            ),
-            "download_menu": lambda: handle_url_download(update, context),
-            "buy_menu": lambda: query.edit_message_text(
-                "💰 **PURCHASE DOWNLOADS** 💰\n\n"
-                "**PLANS:**\n"
-                "• ₹10 → 5 downloads\n"
-                "• ₹40 → 40 downloads\n"
-                "• ₹100 → 150 downloads\n\n"
-                "**Select a plan:**",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=get_buy_menu()
-            ),
-            "my_stats": lambda: show_user_stats(update, context),
-            "download_history": lambda: show_download_history(update, context),
-            "activate_key_menu": lambda: handle_activate_key_menu(update, context),
-            "help": lambda: help_command(update, context),
-            "owner_info": lambda: query.edit_message_text(
-                f"👑 **BOT OWNER** 👑\n\n"
-                f"**Name:** {OWNER_NAME}\n"
-                f"**Username:** {OWNER_USERNAME}\n"
-                f"**ID:** `{OWNER_ID}`\n\n"
-                "📞 **Contact for:**\n"
-                "• Subscription keys\n"
-                "• Custom bot development\n"
-                "• Technical support",
-                reply_markup=get_main_menu(),
-                parse_mode=ParseMode.MARKDOWN
-            ),
-            "admin_menu": lambda: admin_command(update, context),
-            "quick_dl": lambda: query.edit_message_text(
-                "⚡ **QUICK DOWNLOAD**\n\n"
-                "This feature is coming soon!\n\n"
-                "For now, use URL download option.",
-                reply_markup=get_download_menu(),
-                parse_mode=ParseMode.MARKDOWN
-            ),
-            "admin_broadcast": lambda: handle_broadcast(update, context),
-            "admin_all_users": lambda: show_all_users(update, context, 0),  # Fixed callback
-            "admin_payments": lambda: handle_payments(update, context),
-            "admin_ban": lambda: handle_ban_user(update, context),
-            "admin_unban": lambda: handle_unban_user(update, context),
-            "admin_maintenance": lambda: toggle_maintenance(update, context),
-            "admin_stats": lambda: admin_command(update, context),
-            "admin_add": lambda: handle_add_admin(update, context),
-            "admin_remove": lambda: handle_remove_admin(update, context),
-            "admin_gen_key": lambda: handle_generate_key(update, context),
-            "admin_bulk_keys": lambda: handle_bulk_keys(update, context),  # Fixed callback
-            "admin_reply_user": lambda: handle_reply_user(update, context),
-            "admin_reports": lambda: query.edit_message_text(
-                "📊 **USER REPORTS** 📊\n\n"
-                "This feature is coming soon!",
-                reply_markup=get_admin_menu(),
-                parse_mode=ParseMode.MARKDOWN
-            )
-        }
-        
-        if data in handlers:
-            return await handlers[data]()
-        
-        # Buy handlers
-        elif data.startswith("buy_"):
-            plan = data[4:]
-            plans = {
-                "basic": "₹10 → 5 downloads",
-                "pro": "₹40 → 40 downloads",
-                "premium": "₹100 → 150 downloads"
-            }
-            
-            if plan in plans:
-                await query.edit_message_text(
-                    f"🛒 **PLAN SELECTED: {plan.upper()}** 🛒\n\n"
-                    f"{plans[plan]}\n\n"
-                    f"**To purchase:**\n"
-                    f"1. Click VIEW QR CODE button\n"
-                    f"2. Scan QR code to pay\n"
-                    f"3. After payment, click SEND SCREENSHOT\n"
-                    f"4. Send payment screenshot\n"
-                    f"5. Wait for admin approval\n\n"
-                    f"**Your account will be activated automatically after approval**",
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=create_qr_keyboard(plan)
-                )
-    except Exception as e:
-        logger.error(f"Error in callback handler: {e}")
-        try:
-            if update.callback_query:
-                await update.callback_query.answer("❌ An error occurred!", show_alert=True)
-        except:
-            pass
-
-async def handle_activate_key_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle activate key menu from callback"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        await query.edit_message_text(
-            "🔑 **ACTIVATE SUBSCRIPTION KEY** 🔑\n\n"
-            "Please send your subscription key:\n\n"
-            "**Example:**\n"
-            "`SYNAX-ABC12345`\n\n"
-            "**Or use command:**\n"
-            "`/activate YOUR_KEY_HERE`\n\n"
-            "Get keys from @synaxnetwork",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return AWAITING_KEY
-    except Exception as e:
-        logger.error(f"Error handling activate key menu: {e}")
-        await update.callback_query.answer("❌ Error loading form!", show_alert=True)
-        return ConversationHandler.END
-
-async def toggle_maintenance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Toggle maintenance mode - Enhanced"""
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-        
-        if not is_admin(user_id):
-            await query.answer("❌ Admin Only!", show_alert=True)
-            return
-        
-        settings_db['maintenance'] = not settings_db.get('maintenance', False)
-        save_json(SETTINGS_FILE, settings_db)
-        status = "✅ ON" if settings_db['maintenance'] else "❌ OFF"
-        await query.edit_message_text(
-            f"⚙️ **MAINTENANCE MODE:** {status}\n\n"
-            f"Bot is now {'under maintenance' if settings_db['maintenance'] else 'operational'}.",
-            reply_markup=get_admin_menu(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    except Exception as e:
-        logger.error(f"Error toggling maintenance: {e}")
-        await query.answer("❌ Error toggling maintenance!", show_alert=True)
+        logger.error(f"Error handling bonus settings: {e}")
+        await query.answer("❌ Error loading bonus settings!", show_alert=True)
 
 # ===================== MESSAGE HANDLER =====================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle all messages - COMBINED SYSTEM (Enhanced)"""
+    """Handle all messages - COMBINED SYSTEM (Enhanced with Z4X URL Detection)"""
     try:
         user_id = update.effective_user.id
         message_text = update.message.text
@@ -3505,364 +3600,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['awaiting_key'] = False
             return
         
-        # Handle welcome bonus setting
-        if context.user_data.get('awaiting_welcome_bonus') and is_admin(user_id):
-            parts = message_text.strip().split()
-            if len(parts) >= 2 and parts[0].lower() == "set_welcome_bonus":
-                try:
-                    amount = int(parts[1])
-                    if amount < 0:
-                        await update.message.reply_text("❌ **Invalid amount!** Please specify a positive number.")
-                        return
+        # Handle gift key redemption from message
+        if message_text and len(message_text) > 5 and "-" in message_text:
+            # Check if it's a gift key
+            if message_text.upper().startswith("GIFT-"):
+                result = redeem_gift_key(message_text.upper(), user_id)
+                if result["success"]:
+                    gift_data = result["data"]
                     
-                    # Set welcome bonus
-                    result = set_bonus_settings("welcome_bonus", amount, user_id)
+                    gift_msg = f"""
+🎁 **GIFT REDEEMED SUCCESSFULLY!** 🎁
+
+**Gift Details:**
+• Gift Name: {gift_data['plan_name']}
+• Downloads: {gift_data['downloads']}
+• Days: {gift_data['days']}
+• Expires: {datetime.fromisoformat(gift_data['expires_at']).strftime('%d %b %Y')}
+
+🎉 **Enjoy your gift! Thank the gift giver!** 🎉
+"""
                     
-                    if result["success"]:
-                        await update.message.reply_text(
-                            f"✅ **Welcome bonus updated!**\n\n"
-                            f"New welcome bonus: `{amount}` downloads",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    else:
-                        await update.message.reply_text("❌ Error updating welcome bonus.")
-                except ValueError:
-                    await update.message.reply_text("❌ **Invalid amount!** Please specify a valid number.")
-            
-            context.user_data['awaiting_welcome_bonus'] = False
-            return
-        
-        # Handle referral bonus setting
-        if context.user_data.get('awaiting_referral_bonus') and is_admin(user_id):
-            parts = message_text.strip().split()
-            if len(parts) >= 2 and parts[0].lower() == "set_referral_bonus":
-                try:
-                    amount = int(parts[1])
-                    if amount < 0:
-                        await update.message.reply_text("❌ **Invalid amount!** Please specify a positive number.")
-                        return
-                    
-                    # Set referral bonus
-                    result = set_bonus_settings("referral_bonus", amount, user_id)
-                    
-                    if result["success"]:
-                        await update.message.reply_text(
-                            f"✅ **Referral bonus updated!**\n\n"
-                            f"New referral bonus: `{amount}` downloads",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    else:
-                        await update.message.reply_text("❌ Error updating referral bonus.")
-                except ValueError:
-                    await update.message.reply_text("❌ **Invalid amount!** Please specify a valid number.")
-            
-            context.user_data['awaiting_referral_bonus'] = False
-            return
-        
-        # Handle give bonus
-        if context.user_data.get('awaiting_give_bonus') and is_admin(user_id):
-            parts = message_text.strip().split()
-            if len(parts) >= 4 and parts[0].lower() == "give_bonus":
-                try:
-                    target_user_id = int(parts[1])
-                    bonus_type = parts[2].lower()
-                    amount = int(parts[3])
-                    reason = " ".join(parts[4:]) if len(parts) > 4 else "Admin bonus"
-                    
-                    if bonus_type not in ["downloads", "points"]:
-                        await update.message.reply_text("❌ **Invalid bonus type!** Please use 'downloads' or 'points'.")
-                        return
-                    
-                    if amount <= 0:
-                        await update.message.reply_text("❌ **Invalid amount!** Please specify a positive number.")
-                        return
-                    
-                    # Give bonus
-                    result = give_bonus(target_user_id, bonus_type, amount, reason, user_id)
-                    
-                    if result["success"]:
-                        # Get user info
-                        target_user_data = users_db.get(str(target_user_id), {})
-                        username = target_user_data.get('username', 'N/A')
-                        first_name = target_user_data.get('first_name', 'N/A')
-                        
-                        await update.message.reply_text(
-                            f"✅ **Bonus Given!**\n\n"
-                            f"User: @{username} | {first_name} (`{target_user_id}`)\n"
-                            f"Type: {bonus_type}\n"
-                            f"Amount: {amount}\n"
-                            f"Reason: {reason}",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                        
-                        # Notify user
-                        try:
-                            await context.bot.send_message(
-                                chat_id=target_user_id,
-                                text=f"🎁 **BONUS RECEIVED!** 🎁\n\n"
-                                     f"You received {amount} {bonus_type} from admin!\n\n"
-                                     f"Reason: {reason}\n\n"
-                                     f"Thank you for using SYNAX Bot!",
-                                parse_mode=ParseMode.MARKDOWN
-                            )
-                        except Exception as e:
-                            logger.warning(f"Could not notify user {target_user_id}: {e}")
-                    else:
-                        await update.message.reply_text("❌ Error giving bonus.")
-                except ValueError:
                     await update.message.reply_text(
-                        "❌ **Invalid format!**\n\n"
-                        "Usage: `give_bonus <user_id> <type> <amount> <reason>`\n"
-                        "Example: `give_bonus 1234567890 downloads 10 Special bonus`"
+                        gift_msg,
+                        parse_mode=ParseMode.MARKDOWN
                     )
-            
-            context.user_data['awaiting_give_bonus'] = False
-            return
-        
-        # Handle group activation command
-        if context.user_data.get('awaiting_activategroup') and is_admin(user_id):
-            parts = message_text.strip().split()
-            if len(parts) >= 3 and parts[0].lower() == "activategroup":
-                try:
-                    group_id = int(parts[1])
-                    days = int(parts[2])
-                    
-                    if days <= 0 or days > 365:
-                        await update.message.reply_text("❌ **Invalid days!** Please specify 1-365 days.")
-                        return
-                    
-                    # Activate group
-                    result = activate_group(group_id, user_id, days)
-                    
-                    if result["success"]:
-                        group_data = result["data"]
-                        expiry_date = datetime.fromisoformat(group_data["expires_at"])
-                        
-                        # Try to get group info
-                        group_name = "Unknown Group"
-                        try:
-                            chat = await context.bot.get_chat(group_id)
-                            group_name = chat.title
-                        except:
-                            pass
-                        
-                        await update.message.reply_text(
-                            f"✅ **GROUP ACTIVATED!** ✅\n\n"
-                            f"📋 **Group Details:**\n"
-                            f"• Name: {group_name}\n"
-                            f"• ID: `{group_id}`\n"
-                            f"• Validity: `{days}` days\n"
-                            f"• Expires: `{expiry_date.strftime('%d %b %Y')}`\n\n"
-                            f"🎉 **All members can now use unlimited downloads!**",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                        
-                        # Try to notify group
-                        try:
-                            await context.bot.send_message(
-                                chat_id=group_id,
-                                text=f"🎉 **GROUP ACTIVATED!** 🎉\n\n"
-                                     f"This group has been activated for unlimited downloads!\n\n"
-                                     f"Valid until: {expiry_date.strftime('%d %b %Y')}\n\n"
-                                     f"Enjoy unlimited downloads with SYNAX Bot!",
-                                parse_mode=ParseMode.MARKDOWN
-                            )
-                        except:
-                            pass
-                    else:
-                        await update.message.reply_text(
-                            f"❌ **Error activating group!**\n\n"
-                            f"{result.get('error', 'Unknown error')}"
-                        )
-                except ValueError:
+                else:
                     await update.message.reply_text(
-                        "❌ **Invalid input!**\n\n"
-                        "Usage: `activategroup <group_id> <days>`\n"
-                        "Example: `activategroup -123456789 30`"
+                        f"❌ **GIFT REDEMPTION FAILED**\n\n"
+                        f"Error: {result['error']}"
                     )
-            
-            context.user_data['awaiting_activategroup'] = False
-            return
-        
-        # Handle group deactivation command
-        if context.user_data.get('awaiting_deactivategroup') and is_admin(user_id):
-            parts = message_text.strip().split()
-            if len(parts) >= 2 and parts[0].lower() == "deactivategroup":
-                try:
-                    group_id = int(parts[1])
-                    
-                    # Deactivate group
-                    result = deactivate_group(group_id, user_id)
-                    
-                    if result["success"]:
-                        # Try to get group info
-                        group_name = "Unknown Group"
-                        try:
-                            chat = await context.bot.get_chat(group_id)
-                            group_name = chat.title
-                        except:
-                            pass
-                        
-                        await update.message.reply_text(
-                            f"✅ **GROUP DEACTIVATED!** ✅\n\n"
-                            f"📋 **Group Details:**\n"
-                            f"• Name: {group_name}\n"
-                            f"• ID: `{group_id}`\n\n"
-                            f"⚠️ **Members will no longer have unlimited downloads!**",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                        
-                        # Try to notify group
-                        try:
-                            await context.bot.send_message(
-                                chat_id=group_id,
-                                text=f"⚠️ **GROUP DEACTIVATED** ⚠️\n\n"
-                                     f"This group's unlimited downloads have been deactivated.\n\n"
-                                     f"Please contact admin for more information.",
-                                parse_mode=ParseMode.MARKDOWN
-                            )
-                        except:
-                            pass
-                    else:
-                        await update.message.reply_text(
-                            f"❌ **Error deactivating group!**\n\n"
-                            f"{result.get('error', 'Unknown error')}"
-                        )
-                except ValueError:
-                    await update.message.reply_text(
-                        "❌ **Invalid input!**\n\n"
-                        "Usage: `deactivategroup <group_id>`\n"
-                        "Example: `deactivategroup -123456789`"
-                    )
-            
-            context.user_data['awaiting_deactivategroup'] = False
-            return
-        
-        # Check maintenance
-        if settings_db.get("maintenance") and not is_admin(user_id):
-            if any(prefix in message_text for prefix in ['http://', 'https://', 'www.']) or '.' in message_text or message_text.startswith('/'):
-                await update.message.reply_text("🔧 **Bot is under maintenance. Please try later.**")
-            return
-        
-        # Check ban status
-        if user_data.get("is_banned"):
-            if any(prefix in message_text for prefix in ['http://', 'https://', 'www.']) or '.' in message_text or message_text.startswith('/'):
-                await update.message.reply_text("🚫 **Your account is banned!**")
-            return
-        
-        # Handle support ticket creation
-        if context.user_data.get('awaiting_ticket'):
-            ticket_id = create_support_ticket(user_id, message_text)
-            
-            if ticket_id:
-                # Notify admins
-                for admin_id in ADMINS:
-                    try:
-                        await context.bot.send_message(
-                            chat_id=admin_id,
-                            text=f"🎫 **NEW SUPPORT TICKET** 🎫\n\n"
-                                 f"Ticket ID: `{ticket_id}`\n"
-                                 f"User ID: `{user_id}`\n"
-                                 f"User: @{update.effective_user.username or 'N/A'}\n\n"
-                                 f"Message: {message_text[:200]}...",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    except:
-                        pass
-                
-                await update.message.reply_text(
-                    f"✅ **Ticket Created!**\n\n"
-                    f"Ticket ID: `{ticket_id}`\n\n"
-                    f"Our support team will respond soon.",
-                    reply_markup=get_main_menu(),
-                    parse_mode=ParseMode.MARKDOWN
-                )
-                
-                context.user_data['awaiting_ticket'] = False
-            else:
-                await update.message.reply_text("❌ Error creating ticket. Please try again.")
-            return
-        
-        # Handle ticket reply
-        if context.user_data.get('awaiting_ticket_reply'):
-            ticket_id = context.user_data['awaiting_ticket_reply']
-            
-            # Add reply to ticket
-            add_ticket_reply(ticket_id, user_id, message_text, is_admin=True)
-            
-            # Get ticket details
-            ticket = tickets_db.get(ticket_id, {})
-            ticket_user_id = ticket.get('user_id')
-            
-            # Notify user
-            try:
-                await context.bot.send_message(
-                    chat_id=ticket_user_id,
-                    text=f"💬 **NEW REPLY TO YOUR TICKET** 💬\n\n"
-                         f"Ticket ID: `{ticket_id}`\n\n"
-                         f"Reply: {message_text}",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except Exception as e:
-                logger.warning(f"Could not notify user {ticket_user_id}: {e}")
-            
-            await update.message.reply_text(
-                f"✅ **Reply Sent!**\n\n"
-                f"User has been notified.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            
-            context.user_data['awaiting_ticket_reply'] = None
-            return
-        
-        # Handle bulk key generation - FIXED
-        if context.user_data.get('awaiting_bulkgen') and is_admin(user_id):
-            await process_bulk_generation(update, context)
-            return
-        
-        # Handle broadcast confirmation
-        if context.user_data.get('awaiting_broadcast_confirm') and is_admin(user_id):
-            if message_text.lower() == "confirm_broadcast":
-                # Get broadcast info
-                photo_file_id = context.user_data.get('broadcast_photo')
-                caption = context.user_data.get('broadcast_caption', '')
-                
-                # Broadcast to all users
-                success = 0
-                failed = 0
-                
-                await update.message.reply_text(f"📢 Broadcasting to {len(users_db)} users...")
-                
-                for uid_str in users_db.keys():
-                    try:
-                        await context.bot.send_photo(
-                            chat_id=int(uid_str),
-                            photo=photo_file_id,
-                            caption=f"📢 **BROADCAST:**\n\n{caption}",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                        success += 1
-                    except:
-                        failed += 1
-                
-                await update.message.reply_text(
-                    f"✅ **Broadcast Complete!**\n\n"
-                    f"✅ Success: {success}\n"
-                    f"❌ Failed: {failed}"
-                )
-                
-                # Reset state
-                context.user_data['awaiting_broadcast_confirm'] = False
-                context.user_data.pop('broadcast_photo', None)
-                context.user_data.pop('broadcast_caption', None)
-                return
-            elif message_text.lower() == "cancel_broadcast":
-                await update.message.reply_text("❌ Broadcast cancelled.")
-                
-                # Reset state
-                context.user_data['awaiting_broadcast_confirm'] = False
-                context.user_data.pop('broadcast_photo', None)
-                context.user_data.pop('broadcast_caption', None)
                 return
         
         # Handle admin commands in messages
@@ -3954,7 +3720,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['awaiting_unban'] = False
             return
         
-        # Reply to user feature
         elif context.user_data.get('awaiting_reply') and is_admin(user_id):
             # Reply to user
             parts = message_text.strip().split()
@@ -3985,51 +3750,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['awaiting_reply'] = False
             return
         
-        # Handle payment rejection reason
-        elif context.user_data.get('awaiting_reject_reason') and is_admin(user_id):
-            payment_id = context.user_data['awaiting_reject_reason']
-            parts = message_text.strip().split()
-            
-            if len(parts) >= 2 and parts[0].lower() == "reject_reason":
-                reason = " ".join(parts[1:])
-                
-                # Reject payment
-                result = reject_payment(payment_id, user_id, reason)
-                
-                if result["success"]:
-                    payment_data = result["data"]
-                    user_id_payment = payment_data["user_id"]
-                    
-                    # Notify user
-                    try:
-                        await context.bot.send_message(
-                            chat_id=user_id_payment,
-                            text=f"❌ **PAYMENT REJECTED** ❌\n\n"
-                                 f"Your payment was rejected.\n\n"
-                                 f"Reason: {reason}\n\n"
-                                 f"Please contact {OWNER_USERNAME} for more information.",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    except Exception as e:
-                        logger.warning(f"Could not notify user {user_id_payment}: {e}")
-                    
-                    # Confirm to admin
-                    await update.message.reply_text(
-                        f"❌ **PAYMENT REJECTED!**\n\n"
-                        f"Payment ID: `{payment_id}`\n"
-                        f"User ID: `{user_id_payment}`\n"
-                        f"Reason: {reason}\n\n"
-                        f"User has been notified!",
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-                else:
-                    await update.message.reply_text("❌ Error rejecting payment!")
-            
-            context.user_data['awaiting_reject_reason'] = None
+        # Check maintenance
+        if settings_db.get("maintenance") and not is_admin(user_id):
+            if any(prefix in message_text for prefix in ['http://', 'https://', 'www.']) or '.' in message_text or message_text.startswith('/'):
+                await update.message.reply_text("🔧 **Bot is under maintenance. Please try later.**")
             return
         
-        # Handle URL downloads
-        elif message_text and re.match(r'^https?://', message_text):
+        # Check ban status
+        if user_data.get("is_banned"):
+            if any(prefix in message_text for prefix in ['http://', 'https://', 'www.']) or '.' in message_text or message_text.startswith('/'):
+                await update.message.reply_text("🚫 **Your account is banned!**")
+            return
+        
+        # Handle URL downloads with enhanced detection
+        url_detection = URLDetector.smart_url_detection(message_text)
+        
+        if url_detection["is_valid"]:
+            url = url_detection["url"]
+            context.user_data['download_url'] = url
             return await process_url_download(update, context)
         
         # Handle subscription key activation
@@ -4051,7 +3789,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 return
         
-        # ===================== ALL USER MESSAGES FORWARD TO OWNER (SYNAX System) =====================
+        # ===================== ALL USER MESSAGES FORWARD TO OWNER =====================
         if not is_admin(user_id) and message_text and not message_text.startswith('/'):
             user_info = f"""
 📨 **NEW USER MESSAGE**
@@ -4085,9 +3823,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-# ===================== PHOTO HANDLER (NEW - PAYMENT SCREENSHOTS) =====================
+# ===================== PHOTO HANDLER =====================
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle photo uploads - for payment screenshots and broadcasts - Enhanced"""
+    """Handle photo uploads - for payment screenshots and broadcasts"""
     try:
         user_id = update.effective_user.id
         user_data = get_user_stats(user_id)
@@ -4200,11 +3938,10 @@ async def setup_commands(application: Application):
         BotCommand("stats", "Check your stats"),
         BotCommand("admin", "Admin panel (admins only)"),
         BotCommand("activate", "Activate subscription key"),
+        BotCommand("redeem", "Redeem gift key"),
+        BotCommand("genred", "Generate gift key (admin only)"),
         BotCommand("generate", "Generate key (admin only)"),
         BotCommand("give", "Give downloads to user (owner only)"),
-        BotCommand("broadcast", "Broadcast message with image (admin only)"),
-        BotCommand("support", "Create support ticket"),
-        BotCommand("referral", "Get your referral link"),
         BotCommand("activategroup", "Activate a group for unlimited downloads (admin only)"),
         BotCommand("deactivategroup", "Deactivate a group (admin only)"),
         BotCommand("listgroups", "List all active groups (admin only)"),
@@ -4231,6 +3968,7 @@ async def shutdown_handler(signal, frame):
     save_json(REPORTS_FILE, reports_db)
     save_json(GROUPS_FILE, groups_db)
     save_json(BONUS_SETTINGS_FILE, bonus_settings_db)
+    save_json(GIFT_KEYS_FILE, gift_keys_db)
     logger.info("All data saved. Exiting...")
     sys.exit(0)
 
@@ -4240,7 +3978,7 @@ signal.signal(signal.SIGTERM, shutdown_handler)
 
 # ===================== MAIN FUNCTION =====================
 def main():
-    """Start the bot - Enhanced"""
+    """Start the bot - Enhanced with Z4X Features"""
     # Check if wget is installed
     try:
         subprocess.run(["which", "wget"], check=True, capture_output=True)
@@ -4278,19 +4016,16 @@ def main():
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CommandHandler("activate", activate_key_command))
+    application.add_handler(CommandHandler("redeem", redeem_command))
+    application.add_handler(CommandHandler("genred", genred_command))
     application.add_handler(CommandHandler("generate", generate_key_command))
     application.add_handler(CommandHandler("give", give_command))
-    application.add_handler(CommandHandler("broadcast", broadcast_command))
-    application.add_handler(CommandHandler("support", lambda u, c: handle_support_menu(u, c)))
-    application.add_handler(CommandHandler("referral", lambda u, c: handle_my_referral(u, c)))
     application.add_handler(CommandHandler("activategroup", activate_group_command))
     application.add_handler(CommandHandler("deactivategroup", deactivate_group_command))
     application.add_handler(CommandHandler("listgroups", list_groups_command))
-    
-    # NEW: Bonus commands
-    application.add_handler(CommandHandler("setwelcomebonus", lambda u, c: handle_set_welcome_bonus(u, c)))
-    application.add_handler(CommandHandler("setreferralbonus", lambda u, c: handle_set_referral_bonus(u, c)))
-    application.add_handler(CommandHandler("givebonus", lambda u, c: handle_give_bonus_form(u, c)))
+    application.add_handler(CommandHandler("setwelcomebonus", setwelcomebonus_command))
+    application.add_handler(CommandHandler("setreferralbonus", setreferralbonus_command))
+    application.add_handler(CommandHandler("givebonus", givebonus_command))
     
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(conv_handler)
@@ -4305,11 +4040,10 @@ def main():
     
     # Start bot
     print("=" * 60)
-    print("🤖 SYNAX DOWNLOAD BOT - ULTIMATE EDITION (CRASH-PROOF)")
+    print("🤖 SYNAX DOWNLOAD BOT - ULTIMATE EDITION (Enhanced with Z4X Features)")
     print(f"👑 Owner: {OWNER_NAME} ({OWNER_USERNAME})")
-    print(f"🤖 Bot Token: {BOT_TOKEN}")
     print("=" * 60)
-    print("\n✅ **SYNAX BOT FEATURES ADDED:**")
+    print("\n✅ **SYNAX BOT FEATURES:**")
     print("1. 🔑 Key Generation & Activation System")
     print("2. 📊 Complete User Management")
     print("3. 👑 Multiple Admin Management")
@@ -4321,66 +4055,82 @@ def main():
     print("9. 📊 Advanced Statistics")
     print("10. 🎯 Button Menu System")
     print("=" * 60)
-    print("\n✅ **SECOND BOT FEATURES ADDED:**")
-    print("1. 🌐 Clean URL to ZIP Conversion")
-    print("2. 📱 QR Code Payment System")
-    print("3. 📸 Screenshot Upload Feature")
-    print("4. 💾 Direct Memory Zip Creation")
+    print("\n✅ **Z4X BOT FEATURES ADDED:**")
+    print("1. 🎁 Gift Key System - Generate special keys for multiple users")
+    print("2. 🌐 Enhanced URL Detection - Better website URL recognition")
+    print("3. 🛡️ Robust Error Handling - Better crash protection")
+    print("4. 📊 Gift Key Statistics - Track gift key usage")
+    print("5. 🔍 Smart URL Detection - Detects all types of URLs")
+    print("6. 🌐 Enhanced Download System - Better website downloading")
+    print("7. 🛠️ Improved Wget Options - More reliable downloads")
+    print("8. 📁 Better File Handling - Improved zip creation")
     print("=" * 60)
     print("\n✅ **NEW FEATURES ADDED:**")
-    print("1. 🎁 /give command - Owner can give downloads to users")
-    print("2. 💳 Payment Approval System - Admins can approve/reject payments")
-    print("3. 📜 Download History - Users can view their download history")
-    print("4. 📸 Direct Screenshot to Admin - Payment screenshots go directly to admin")
-    print("5. ✅ One-Click Approval - Admins can approve payments with one click")
-    print("6. 🔑 Bulk Key Generation - Generate multiple keys at once (FIXED)")
-    print("7. 📢 Image Broadcast - Send images with captions to all users")
-    print("8. 🎫 Support System - Users can create support tickets")
-    print("9. 👥 Referral System - Users can refer friends for rewards")
-    print("10. 🔄 Fixed Start button and commands not working")
-    print("11. 🗂️ Conversation Handler for downloads - Better user experience")
-    print("12. 🖼️ Image Removed - Bot now works without welcome image")
-    print("13. 🔑 Fixed Activation Key - Now works properly from start menu")
-    print("14. 👥 FIXED: Admin Panel Users Button - Now properly displays all users with pagination")
-    print("15. 🎫 FIXED: Support Tickets - Now properly creates and manages support tickets")
-    print("16. 🔑 FIXED: Bulk Key Generator - Now properly generates and sends bulk keys")
-    print("17. 🛡️ CRASH-PROOF: Added comprehensive error handling")
-    print("18. 🔧 FIXED: All potential crash points with try-catch blocks")
-    print("19. 📊 FIXED: Database operations with proper error handling")
-    print("20. 🔄 FIXED: Callback handler with proper error management")
+    print("1. 🎁 /redeem command - Users can redeem gift keys")
+    print("2. 🎁 /genred command - Admins can generate gift keys")
+    print("3. 💳 Payment Approval System - Admins can approve/reject payments")
+    print("4. 📜 Download History - Users can view their download history")
+    print("5. 📸 Direct Screenshot to Admin - Payment screenshots go directly to admin")
+    print("6. ✅ One-Click Approval - Admins can approve payments with one click")
+    print("7. 🔑 Bulk Key Generation - Generate multiple keys at once")
+    print("8. 📢 Image Broadcast - Send images with captions to all users")
+    print("9. 🎫 Support System - Users can create support tickets")
+    print("10. 👥 Referral System - Users can refer friends for rewards")
+    print("11. 🔄 Fixed Start button and commands not working")
+    print("12. 🗂️ Conversation Handler for downloads - Better user experience")
+    print("13. 🖼️ Image Removed - Bot now works without welcome image")
+    print("14. 🔑 Fixed Activation Key - Now works properly from start menu")
+    print("15. 👥 FIXED: Admin Panel Users Button - Now properly displays all users with pagination")
+    print("16. 🎫 FIXED: Support Tickets - Now properly creates and manages support tickets")
+    print("17. 🔑 FIXED: Bulk Key Generator - Now properly generates and sends bulk keys")
+    print("18. 🛡️ CRASH-PROOF: Added comprehensive error handling")
+    print("19. 🔧 FIXED: All potential crash points with try-catch blocks")
+    print("20. 📊 FIXED: Database operations with proper error handling")
+    print("21. 🔄 FIXED: Callback handler with proper error management")
     print("=" * 60)
     print("\n✅ **GROUP ACTIVATION FEATURE ADDED:**")
-    print("21. 👥 /activategroup command - Admins can activate groups for unlimited downloads")
-    print("22. 👥 /deactivategroup command - Admins can deactivate groups")
-    print("23. 👥 /listgroups command - Admins can view all active groups")
-    print("24. 👥 Group Management in Admin Panel - Easy to manage activated groups")
-    print("25. 👥 Unlimited downloads for all group members when group is activated")
+    print("22. 👥 /activategroup command - Admins can activate groups for unlimited downloads")
+    print("23. 👥 /deactivategroup command - Admins can deactivate groups")
+    print("24. 👥 /listgroups command - Admins can view all active groups")
+    print("25. 👥 Group Management in Admin Panel - Easy to manage activated groups")
+    print("26. 👥 Unlimited downloads for all group members when group is activated")
     print("=" * 60)
     print("\n✅ **WGET ISSUE FIXED:**")
-    print("26. 🔧 Fixed wget dependency issue - Bot now works without requiring wget installation")
-    print("27. 🛠️ Added fallback download method when wget is not available")
-    print("28. 🌐 Added requests library as fallback for downloading websites")
-    print("29. 📊 Enhanced error handling for download failures")
+    print("27. 🔧 Fixed wget dependency issue - Bot now works without requiring wget installation")
+    print("28. 🛠️ Added fallback download method when wget is not available")
+    print("29. 🌐 Added requests library as fallback for downloading websites")
+    print("30. 📊 Enhanced error handling for download failures")
     print("=" * 60)
     print("\n✅ **BONUS SYSTEM ADDED:**")
-    print("30. 🎁 Welcome Bonus - New users automatically receive bonus downloads")
-    print("31. 🎁 Admin Panel for Bonus Settings - Admins can configure bonus amounts")
-    print("32. 🎁 Manual Bonus Distribution - Admins can give bonus downloads/points to users")
-    print("33. 🎁 Points System - Users can earn and accumulate points")
-    print("34. 🎁 Bonus History - Track all bonuses given to users")
-    print("35. 🎁 Configurable Referral Bonus - Admins can set referral reward amount")
+    print("31. 🎁 Welcome Bonus - New users automatically receive bonus downloads")
+    print("32. 🎁 Admin Panel for Bonus Settings - Admins can configure bonus amounts")
+    print("33. 🎁 Manual Bonus Distribution - Admins can give bonus downloads/points to users")
+    print("34. 🎁 Points System - Users can earn and accumulate points")
+    print("35. 🎁 Bonus History - Track all bonuses given to users")
+    print("36. 🎁 Configurable Referral Bonus - Admins can set referral reward amount")
+    print("37. 🎁 /setwelcomebonus command - Admins can set welcome bonus amount")
+    print("38. 🎁 /setreferralbonus command - Admins can set referral bonus amount")
+    print("39. 🎁 /givebonus command - Admins can give bonus to specific users")
     print("=" * 60)
     print("\n🔧 **CRASH FIXES IMPLEMENTED:**")
-    print("36. 🛡️ Added comprehensive error handling to all functions")
-    print("37. 🔄 Fixed JSON file corruption issues with backup mechanism")
-    print("38. ⏱️ Added timeouts to all network requests")
-    print("39. 🧹 Added proper resource cleanup for temporary files")
-    print("40. 🔄 Fixed conversation handler state management")
-    print("41. 📊 Added rate limiting to prevent API abuse")
-    print("42. 🔄 Fixed memory leaks in file operations")
-    print("43. 🛡️ Added graceful shutdown mechanism")
-    print("44. 🔄 Fixed infinite loops in callback handlers")
-    print("45. 📊 Added proper error handling for subprocess calls")
+    print("40. 🛡️ Added comprehensive error handling to all functions")
+    print("41. 🔄 Fixed JSON file corruption issues with backup mechanism")
+    print("42. ⏱️ Added timeouts to all network requests")
+    print("43. 🧹 Added proper resource cleanup for temporary files")
+    print("44. 🔄 Fixed conversation handler state management")
+    print("45. 📊 Added rate limiting to prevent API abuse")
+    print("46. 🔄 Fixed memory leaks in file operations")
+    print("47. 🛡️ Added graceful shutdown mechanism")
+    print("48. 🔄 Fixed infinite loops in callback handlers")
+    print("49. 📊 Added proper error handling for subprocess calls")
+    print("=" * 60)
+    print("\n🔍 **ADVANCED URL DETECTION ADDED:**")
+    print("50. 🌐 Smart URL Detection - Detects all types of URLs from text")
+    print("51. 🌐 Enhanced Domain Recognition - Recognizes special domains like GitHub Pages")
+    print("52. 🌐 Improved URL Cleaning - Better formatting of URLs")
+    print("53. 🌐 URL Type Detection - Identifies different types of websites")
+    print("54. 🌐 Confidence Scoring - Rates how confident the bot is about detected URLs")
+    print("55. 🌐 Better Error Messages - More informative error messages for invalid URLs")
     print("=" * 60)
     print("\n📁 **DATABASE FILES CREATED:**")
     print(f"  • {USERS_FILE} - All users data")
@@ -4394,11 +4144,14 @@ def main():
     print(f"  • {REPORTS_FILE} - User reports")
     print(f"  • {GROUPS_FILE} - Activated groups")
     print(f"  • {BONUS_SETTINGS_FILE} - Bonus settings")
+    print(f"  • {GIFT_KEYS_FILE} - Gift keys")
     print("=" * 60)
     print("\n🚀 **BOT STARTED SUCCESSFULLY!**")
     print("🛡️ Bot is now CRASH-PROOF with comprehensive error handling!")
     print("🔧 Bot now works with or without wget installed!")
-    print("🎁 Bonus system is now active with welcome bonuses for new users!")
+    print("🎁 Gift key system is now active for special promotions!")
+    print("🔍 Advanced URL detection system is now active!")
+    print("🌐 Enhanced download system is now active!")
     print("🔄 Graceful shutdown implemented to prevent data loss!")
     print("=" * 60)
     
